@@ -1,0 +1,1054 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>애니 도감</title>
+<meta name="theme-color" content="#F3F5F9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E1220" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="애니 도감">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+  /* Layout: one-screen phone app. Header with spoiler switch, three panels (chat / recommend / log), bottom tab bar. */
+  :root {
+    --bg: #F3F5F9;
+    --surface: #FFFFFF;
+    --ink: #141A2A;
+    --muted: #5B6479;
+    --line: #DDE2EC;
+    --accent: #2B55F5;
+    --accent-ink: #FFFFFF;
+    --pop: #FFC933;
+    --pop-ink: #3A2B00;
+    --me: #2B55F5;
+    --me-ink: #FFFFFF;
+    --bot: #E6EAF4;
+    --danger: #C0352F;
+    --font-display: 'Black Han Sans', 'Noto Sans KR', sans-serif;
+    --font-body: 'Noto Sans KR', system-ui, -apple-system, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E1220;
+      --surface: #171C2E;
+      --ink: #EAEEF9;
+      --muted: #9AA4BD;
+      --line: #2A3250;
+      --accent: #8AA3FF;
+      --accent-ink: #0E1220;
+      --pop: #FFD04D;
+      --pop-ink: #2A2000;
+      --me: #4562F2;
+      --me-ink: #FFFFFF;
+      --bot: #1F2640;
+      --danger: #FF8A84;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E1220;
+    --surface: #171C2E;
+    --ink: #EAEEF9;
+    --muted: #9AA4BD;
+    --line: #2A3250;
+    --accent: #8AA3FF;
+    --accent-ink: #0E1220;
+    --pop: #FFD04D;
+    --pop-ink: #2A2000;
+    --me: #4562F2;
+    --me-ink: #FFFFFF;
+    --bot: #1F2640;
+    --danger: #FF8A84;
+    color-scheme: dark;
+  }
+
+  :root { color-scheme: light; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  body { margin: 0; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  @supports (height: 100dvh) { html, body { height: 100dvh; } }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.5;
+    padding-block: 0;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  * { box-sizing: border-box; }
+  button { font-family: inherit; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  #app { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+
+  .bar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 10px 8px; }
+  .brand { min-width: 0; }
+  h1 { font: 400 25px/1.05 var(--font-display); margin: 0; letter-spacing: 0.01em; }
+  .sub { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .spoil { flex: none; border: 1.5px solid var(--line); background: transparent; color: var(--muted); border-radius: 999px; padding: 6px 12px; font-size: 12.5px; font-weight: 700; min-height: 34px; }
+  .spoil[aria-checked="true"] { background: var(--pop); color: var(--pop-ink); border-color: var(--pop); }
+
+  main { flex: 1; min-height: 0; }
+  .panel { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+  .scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding-block: 8px 18px; }
+
+  /* chat */
+  #msgs { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-block: 8px; }
+  .bubble { max-width: 88%; padding: 10px 13px; border-radius: 16px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+  .bot { background: var(--bot); align-self: flex-start; border-bottom-left-radius: 5px; }
+  .me { background: var(--me); color: var(--me-ink); align-self: flex-end; border-bottom-right-radius: 5px; }
+  .err { border: 1px solid var(--danger); color: var(--danger); background: transparent; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; align-self: flex-start; max-width: 100%; }
+  .chip { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 7px 12px; font-size: 13px; min-height: 34px; }
+  .chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .composer { flex: none; display: flex; gap: 8px; align-items: flex-end; padding-top: 8px; }
+  textarea, input[type="text"] {
+    width: 100%; min-width: 0; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+    border-radius: 14px; padding: 10px 12px; font: inherit; font-size: 16px;
+  }
+  textarea { flex: 1; resize: none; max-height: 120px; }
+  textarea::placeholder, input::placeholder { color: var(--muted); }
+  .btn { flex: none; background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 14px; padding: 11px 16px; font-weight: 700; font-size: 14px; min-height: 44px; }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  .btn.small { min-height: 36px; padding: 7px 12px; font-size: 13px; border-radius: 10px; }
+  .note { font-size: 11.5px; color: var(--muted); text-align: center; padding-block: 6px 4px; }
+
+  /* shared form + cards */
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .label { font-size: 12.5px; font-weight: 700; color: var(--muted); }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .card h2, .card h3 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 19px; line-height: 1.25; overflow-wrap: anywhere; }
+  .orig { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag { font-size: 11.5px; padding: 3px 8px; border-radius: 6px; background: var(--bot); color: var(--ink); }
+  .tag.warn { background: var(--pop); color: var(--pop-ink); font-weight: 700; }
+  .tag.ex { background: transparent; border: 1px dashed var(--muted); color: var(--muted); }
+  .line { margin: 0; overflow-wrap: anywhere; }
+  .line b { color: var(--accent); font-size: 12.5px; margin-right: 6px; }
+  .hint { color: var(--muted); font-size: 13.5px; margin: 0; }
+  .section-title { font-size: 13px; font-weight: 700; color: var(--muted); margin: 4px 0 -4px; }
+  .seg { display: flex; gap: 8px; }
+  .seg .chip { flex: 1; }
+  .stars { display: flex; gap: 4px; }
+  .star { border: 0; background: transparent; color: var(--muted); font-size: 26px; line-height: 1; padding: 4px; min-width: 40px; min-height: 40px; }
+  .star[aria-pressed="true"] { color: var(--pop); }
+  .rating { color: var(--pop); letter-spacing: 2px; font-size: 14px; }
+  :root:not([data-theme="dark"]) .rating { color: #C98F00; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .rating { color: var(--pop); } }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .busy { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+  /* tab bar */
+  nav { flex: none; display: flex; border-top: 1px solid var(--line); padding-block: 4px 6px; }
+  .tab { flex: 1; border: 0; background: transparent; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11.5px; font-weight: 700; padding: 6px 0 2px; position: relative; min-height: 48px; }
+  .tab svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .tab[aria-selected="true"] { color: var(--accent); }
+  .tab[aria-selected="true"]::before { content: ""; position: absolute; top: -5px; left: 30%; right: 30%; height: 3px; border-radius: 0 0 3px 3px; background: var(--pop); }
+  .src { align-self: flex-start; font-size: 11.5px; color: var(--muted); margin-top: -4px; padding-inline: 4px; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="bar">
+    <div class="brand">
+      <h1>애니 도감</h1>
+      <div class="sub">같이 얘기하고, 취향대로 골라주는 AI 친구</div>
+    </div>
+    <button class="spoil" id="spoil" role="switch" aria-checked="true">스포 방지 ON</button>
+  </header>
+
+  <main>
+    <!-- chat -->
+    <section class="panel" id="p-chat">
+      <div id="msgs" aria-live="polite"></div>
+      <form class="composer" id="composer">
+        <textarea id="input" rows="1" placeholder="작품 이야기나 감상을 편하게 적어요" aria-label="메시지"></textarea>
+        <button class="btn" id="send" type="submit" disabled>보내기</button>
+      </form>
+      <div class="note" id="chatNote">AI 연결 중…</div>
+    </section>
+
+    <!-- recommend -->
+    <section class="panel" id="p-recommend" hidden>
+      <div class="scroll">
+        <div class="card">
+          <div class="field">
+            <label class="label" for="fav">좋아하는 작품</label>
+            <input type="text" id="fav" maxlength="80" placeholder="예: 카우보이 비밥" autocomplete="off">
+          </div>
+          <div class="field">
+            <span class="label">특히 좋았던 점 (여러 개 선택)</span>
+            <div class="chips" id="reasons"></div>
+          </div>
+          <button class="btn" id="findBtn" type="button" disabled>비슷한 작품 찾기</button>
+        </div>
+        <div id="results"></div>
+      </div>
+    </section>
+
+    <!-- log -->
+    <section class="panel" id="p-log" hidden>
+      <div class="scroll">
+        <div class="card">
+          <div class="field">
+            <label class="label" for="logTitle">작품 이름</label>
+            <input type="text" id="logTitle" maxlength="80" placeholder="예: 진격의 거인" autocomplete="off">
+          </div>
+          <div class="seg" id="statusSeg">
+            <button type="button" class="chip" data-s="seen" aria-pressed="true">봤어요</button>
+            <button type="button" class="chip" data-s="want" aria-pressed="false">볼 예정</button>
+          </div>
+          <div class="field" id="ratingField">
+            <span class="label">별점 (선택)</span>
+            <div class="stars" id="stars"></div>
+          </div>
+          <div class="field">
+            <label class="label" for="logNote">한 줄 감상 (선택)</label>
+            <input type="text" id="logNote" maxlength="120" placeholder="예: 3화부터 확 빠져들었다" autocomplete="off">
+          </div>
+          <button class="btn" id="addLog" type="button">기록에 담기</button>
+          <div class="hint" id="logMsg" hidden></div>
+        </div>
+        <div id="logList"></div>
+        <p class="note">기록은 이 기기의 브라우저에만 저장돼요. 대화와 추천에는 이 기록이 반영돼요.</p>
+      </div>
+    </section>
+    <!-- settings -->
+    <section class="panel" id="p-settings" hidden>
+      <div class="scroll">
+        <div class="card">
+          <h3>AI 연결</h3>
+          <div class="seg" id="provSeg">
+            <button type="button" class="chip" data-p="gemini" aria-pressed="true">Gemini (무료 키)</button>
+            <button type="button" class="chip" data-p="claude" aria-pressed="false">Claude (유료)</button>
+          </div>
+          <p class="hint" id="provHint"></p>
+          <div class="field">
+            <label class="label" for="apikey">API 키</label>
+            <input type="password" id="apikey" placeholder="여기에 붙여넣기" autocomplete="off" autocapitalize="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label class="label" for="modelName">모델 이름 (비워두면 기본값)</label>
+            <input type="text" id="modelName" autocomplete="off" autocapitalize="off" spellcheck="false">
+          </div>
+          <div class="actions">
+            <button class="btn" id="saveKey" type="button">저장</button>
+            <button class="btn ghost" id="clearKey" type="button">키 삭제</button>
+          </div>
+          <div class="hint" id="keyMsg"></div>
+        </div>
+        <div class="card">
+          <h3>작품 정보 출처</h3>
+          <p class="hint">작품 정보는 AniList 공개 데이터베이스에서 조회해요. 조회에 성공하면 답변 아래에 "조회한 작품"이 표시돼요. 표시가 없으면 AI 기억으로만 답한 거라 틀릴 수 있어요.</p>
+        </div>
+        <div class="card">
+          <h3>알아두세요</h3>
+          <p class="hint">키는 남에게 보여주지 말고, 혼자 쓰는 기기에만 저장하세요. 이 앱은 키를 서버에 올리지 않고 이 기기의 브라우저에만 저장해요.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <nav aria-label="메뉴">
+    <button class="tab" id="t-chat" aria-selected="true">
+      <svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/></svg>대화
+    </button>
+    <button class="tab" id="t-recommend" aria-selected="false">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5 5-2Z"/></svg>추천
+    </button>
+    <button class="tab" id="t-log" aria-selected="false">
+      <svg viewBox="0 0 24 24"><path d="M6 4h12v17l-6-4-6 4V4Z"/></svg>내 기록
+    </button>
+    <button class="tab" id="t-settings" aria-selected="false">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>설정
+    </button>
+  </nav>
+</div>
+
+<script>
+(function () {
+  var KEY_LOG = 'anime-ai-log-v1';
+  var KEY_SPOIL = 'anime-ai-spoiler-v1';
+  var $ = function (s) { return document.querySelector(s); };
+
+  function load(k, def) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch (e) { return def; } }
+  function save(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+
+  var log = load(KEY_LOG, []);
+  if (!Array.isArray(log)) log = [];
+  var spoilerSafe = load(KEY_SPOIL, true) !== false;
+  var sample = null;
+  var aiState = 'loading'; // loading | ready | off
+
+  /* ---------- tabs ---------- */
+  var TABS = ['chat', 'recommend', 'log', 'settings'];
+  function show(name) {
+    if (TABS.indexOf(name) < 0) name = 'chat';
+    TABS.forEach(function (t) {
+      $('#p-' + t).hidden = t !== name;
+      $('#t-' + t).setAttribute('aria-selected', t === name ? 'true' : 'false');
+    });
+  }
+  TABS.forEach(function (t) {
+    $('#t-' + t).addEventListener('click', function () {
+      show(t);
+      try { location.hash = t; } catch (e) {}
+    });
+  });
+  window.addEventListener('hashchange', function () { show(location.hash.slice(1)); });
+  show(location.hash.slice(1));
+
+  /* ---------- spoiler switch ---------- */
+  function paintSpoil() {
+    var b = $('#spoil');
+    b.setAttribute('aria-checked', spoilerSafe ? 'true' : 'false');
+    b.textContent = spoilerSafe ? '스포 방지 ON' : '스포 허용';
+  }
+  $('#spoil').addEventListener('click', function () { spoilerSafe = !spoilerSafe; save(KEY_SPOIL, spoilerSafe); paintSpoil(); });
+  paintSpoil();
+
+  /* ---------- AI availability ---------- */
+  function setAI(state) {
+    aiState = state;
+    var ready = state === 'ready';
+    $('#send').disabled = !ready || busy;
+    $('#findBtn').disabled = !ready || recBusy;
+    $('#chatNote').textContent =
+      state === 'loading' ? 'AI 연결 중…' :
+      state === 'off' ? '설정 탭에서 API 키를 넣으면 AI를 쓸 수 있어요. 기록 탭은 지금도 쓸 수 있어요.' :
+      '작품 정보는 AniList에서 확인해 답해요. 조회 표시가 없으면 AI 기억이라 틀릴 수 있어요.';
+  }
+  var busy = false, recBusy = false;
+  var PROVIDERS = {
+    gemini: { label: 'Gemini', model: 'gemini-3.5-flash-lite' },
+    claude: { label: 'Claude', model: 'claude-sonnet-5-5' }
+  };
+  var lastDetail = '';
+  function lsGet(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } }
+  function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
+  if (!lsGet('anime-ai-key-claude') && lsGet('anime-ai-apikey-v1')) lsSet('anime-ai-key-claude', lsGet('anime-ai-apikey-v1'));
+  function getProvider() { var p = lsGet('anime-ai-provider'); return PROVIDERS[p] ? p : 'gemini'; }
+  function getKey(p) { return lsGet('anime-ai-key-' + (p || getProvider())); }
+  function getModel(p) { p = p || getProvider(); return lsGet('anime-ai-model-' + p) || PROVIDERS[p].model; }
+
+  function parseJson(t) {
+    try { return JSON.parse(t); } catch (e) {}
+    var m = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (m) { try { return JSON.parse(m[1]); } catch (e) {} }
+    var a = t.search(/[\[{]/);
+    var b = Math.max(t.lastIndexOf(']'), t.lastIndexOf('}'));
+    if (a >= 0 && b > a) { try { return JSON.parse(t.slice(a, b + 1)); } catch (e) {} }
+    throw new Error('no json');
+  }
+
+  async function httpError(res) {
+    var body = '';
+    try { body = await res.text(); } catch (e) {}
+    var msg = '';
+    try { var j = JSON.parse(body); msg = (j.error && (j.error.message || j.error.status)) || ''; } catch (e) {}
+    var code = 'upstream_error';
+    if (res.status === 401 || res.status === 403 || /api key not valid|API_KEY_INVALID/i.test(body)) code = 'bad_key';
+    else if (res.status === 429) code = 'rate_limited';
+    else if (/credit/i.test(body)) code = 'no_credit';
+    lastDetail = 'HTTP ' + res.status + (msg ? ' ' + String(msg).slice(0, 90) : '');
+    return { code: code, message: lastDetail };
+  }
+
+  function pickClaude(d) {
+    if (d.type === 'content_block_delta' && d.delta && d.delta.type === 'text_delta') return { text: d.delta.text };
+    if (d.type === 'message_delta' && d.delta && d.delta.stop_reason) return { stop: d.delta.stop_reason };
+    if (d.type === 'error') return { error: (d.error && d.error.message) || 'error' };
+    return {};
+  }
+  function pickGemini(d) {
+    if (d.error) return { error: d.error.message || 'error' };
+    if (d.promptFeedback && d.promptFeedback.blockReason) return { error: 'blocked: ' + d.promptFeedback.blockReason };
+    var c = d.candidates && d.candidates[0];
+    if (!c) return {};
+    var text = '';
+    ((c.content && c.content.parts) || []).forEach(function (p) { if (p.text && !p.thought) text += p.text; });
+    return { text: text, stop: c.finishReason && c.finishReason !== 'STOP' ? c.finishReason : null };
+  }
+
+  async function readStream(res, opts, pick) {
+    var reader = res.body.getReader();
+    var dec = new TextDecoder();
+    var buf = '', full = '', stop = null;
+    try {
+      for (;;) {
+        var r = await reader.read();
+        if (r.done) break;
+        buf += dec.decode(r.value, { stream: true });
+        var parts = buf.split('\n');
+        buf = parts.pop();
+        for (var k = 0; k < parts.length; k++) {
+          var line = parts[k].replace(/\r$/, '');
+          if (line.indexOf('data:') !== 0) continue;
+          var d;
+          try { d = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
+          var out = pick(d);
+          if (out.error) { lastDetail = String(out.error).slice(0, 90); throw { code: 'upstream_error', message: out.error }; }
+          if (out.text) { full += out.text; if (opts.onText) opts.onText({ text: full, delta: out.text }); }
+          if (out.stop) stop = out.stop;
+        }
+      }
+    } catch (e) {
+      var partial = full || undefined;
+      if (e && e.name === 'AbortError') throw { code: 'cancelled', message: 'cancelled', text: partial };
+      if (e && e.code) { e.text = e.text || partial; throw e; }
+      throw { code: 'upstream_error', message: String(e), text: partial };
+    }
+    if (!full.trim()) throw { code: 'empty_completion', message: 'empty' };
+    return { text: full, truncated: stop === 'max_tokens' || stop === 'MAX_TOKENS' };
+  }
+
+  function makeSample() {
+    var p = getProvider();
+    async function s(input, opts) {
+      opts = opts || {};
+      var src = typeof input === 'string' ? [{ role: 'user', content: input }] : input;
+      var messages = [];
+      src.forEach(function (m) {
+        var last = messages[messages.length - 1];
+        if (last && last.role === m.role) last.content += '\n\n' + m.content;
+        else messages.push({ role: m.role, content: m.content });
+      });
+      var res;
+      try {
+        if (p === 'gemini') {
+          var gen = { maxOutputTokens: opts.maxTokens || 4096, temperature: opts.json ? 0.3 : 0.8 };
+          if (opts.json) gen.responseMimeType = 'application/json';
+          res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(getModel('gemini')) + ':streamGenerateContent?alt=sse', {
+            method: 'POST',
+            signal: opts.signal,
+            headers: { 'content-type': 'application/json', 'x-goog-api-key': getKey('gemini') },
+            body: JSON.stringify({
+              contents: messages.map(function (m) { return { role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }; }),
+              generationConfig: gen
+            })
+          });
+        } else {
+          res = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            signal: opts.signal,
+            headers: {
+              'content-type': 'application/json',
+              'x-api-key': getKey('claude'),
+              'anthropic-version': '2023-06-01',
+              'anthropic-dangerous-direct-browser-access': 'true'
+            },
+            body: JSON.stringify({ model: getModel('claude'), max_tokens: opts.maxTokens || 1500, stream: true, messages: messages })
+          });
+        }
+      } catch (e) {
+        if (e && e.name === 'AbortError') throw { code: 'cancelled', message: 'cancelled' };
+        lastDetail = '네트워크 오류';
+        throw { code: 'upstream_error', message: String(e) };
+      }
+      if (!res.ok) throw await httpError(res);
+      return readStream(res, opts, p === 'gemini' ? pickGemini : pickClaude);
+    }
+    s.json = async function (input, opts) {
+      var r = await s(input, Object.assign({ maxTokens: 6000, json: true }, opts || {}));
+      if (r.truncated) throw { code: 'invalid_json', message: 'truncated', text: r.text };
+      try { return parseJson(r.text); } catch (e) { throw { code: 'invalid_json', message: 'bad json', text: r.text }; }
+    };
+    return s;
+  }
+
+  function refreshAI() {
+    sample = getKey() ? makeSample() : null;
+    setAI(sample ? 'ready' : 'off');
+  }
+  refreshAI();
+
+  /* ---------- AniList ---------- */
+  var ANILIST = 'https://graphql.anilist.co';
+  async function anilist(query, variables, signal) {
+    var res;
+    try {
+      res = await fetch(ANILIST, {
+        method: 'POST',
+        signal: signal,
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ query: query, variables: variables })
+      });
+    } catch (e) {
+      if (e && e.name === 'AbortError') throw { code: 'cancelled', message: 'cancelled' };
+      throw new Error('anilist network');
+    }
+    if (!res.ok) throw new Error('anilist ' + res.status);
+    var j = await res.json();
+    if (j.errors && !j.data) throw new Error('anilist query');
+    return j.data;
+  }
+  var MEDIA_FIELDS = 'id title{romaji english native} format status episodes season seasonYear averageScore genres source description(asHtml:false) studios(isMain:true){nodes{name}} tags{name rank isMediaSpoiler}';
+  var Q_SEARCH = 'query($q:String){Page(perPage:3){media(search:$q,type:ANIME,sort:SEARCH_MATCH){' + MEDIA_FIELDS + '}}}';
+  var Q_REC = 'query($q:String){Page(perPage:1){media(search:$q,type:ANIME,sort:SEARCH_MATCH){' + MEDIA_FIELDS +
+    ' recommendations(sort:RATING_DESC,perPage:15){nodes{rating mediaRecommendation{id title{romaji english native} format seasonYear episodes genres averageScore description(asHtml:false) tags{name rank isMediaSpoiler}}}}}}}';
+
+  function cleanDesc(s, n) {
+    return String(s || '').replace(/~!.*?!~/gs, '').replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, n);
+  }
+  function tNames(m, n) {
+    return (m.tags || []).filter(function (t) { return !t.isMediaSpoiler; })
+      .sort(function (a, b) { return (b.rank || 0) - (a.rank || 0); })
+      .slice(0, n).map(function (t) { return t.name; });
+  }
+  function titleOf(m) { var t = m.title || {}; return t.english || t.romaji || t.native || ''; }
+  function allTitles(m) { var t = m.title || {}; return [t.romaji, t.english, t.native].filter(Boolean); }
+  function factText(m) {
+    var studios = ((m.studios && m.studios.nodes) || []).map(function (x) { return x.name; }).join(', ');
+    return '- 제목: ' + allTitles(m).join(' / ') + '\n' +
+      '  형식 ' + (m.format || '?') + ', 편수 ' + (m.episodes || '?') + ', 방영 ' + (m.seasonYear || '?') + (m.season ? ' ' + m.season : '') +
+      ', 상태 ' + (m.status || '?') + ', 원작 ' + (m.source || '?') + ', 제작사 ' + (studios || '?') + ', 평점 ' + (m.averageScore || '?') + '/100\n' +
+      '  장르: ' + (m.genres || []).join(', ') + '\n' +
+      '  태그: ' + tNames(m, 8).join(', ') + '\n' +
+      '  줄거리(영문): ' + cleanDesc(m.description, 500);
+  }
+
+  async function extractTitles(text, signal) {
+    var t = String(text || '').trim();
+    if (t.length < 3) return [];
+    var prompt = '다음 메시지에 애니메이션 작품이 언급되어 있으면, AniList에서 검색할 수 있는 영어 또는 로마자 제목을 JSON 문자열 배열로만 출력해. 최대 3개. 확실하지 않으면 원문에 적힌 이름을 그대로 써. 작품이 언급되지 않았으면 [] 만 출력해.\n\n메시지: ' + t.slice(0, 500);
+    var data = await sample.json(prompt, { signal: signal, maxTokens: 400 });
+    return Array.isArray(data) ? data.map(String).filter(Boolean).slice(0, 3) : [];
+  }
+
+  var lastFacts = null;
+  async function ground(text, signal, bot) {
+    var names = [];
+    try {
+      bot.textContent = '작품 정보를 확인하는 중…';
+      names = await extractTitles(text, signal);
+    } catch (e) {
+      if (e && e.code === 'cancelled') throw e;
+      names = [];
+    }
+    if (!names.length) return lastFacts || { text: '', names: [], failed: false };
+    var items = [];
+    for (var i = 0; i < names.length; i++) {
+      try {
+        var d = await anilist(Q_SEARCH, { q: names[i] }, signal);
+        var m = d && d.Page && d.Page.media && d.Page.media[0];
+        if (m && !items.some(function (x) { return x.id === m.id; })) items.push(m);
+      } catch (e) {
+        if (e && e.code === 'cancelled') throw e;
+      }
+    }
+    if (!items.length) return { text: '', names: [], failed: true };
+    lastFacts = {
+      text: items.map(factText).join('\n\n'),
+      names: items.map(function (m) { return titleOf(m) + (m.seasonYear ? ' (' + m.seasonYear + ')' : ''); }),
+      failed: false
+    };
+    return lastFacts;
+  }
+
+  function copyFor(code) {
+    switch (code) {
+      case 'rate_limited': return '요청이 많거나 사용 한도에 도달했어요. 잠시 뒤에 다시 시도해 주세요.';
+      case 'bad_key': return 'API 키가 올바르지 않아요. 설정 탭에서 키를 다시 확인해 주세요.';
+      case 'no_credit': return 'API 크레딧이 부족해요. Anthropic 콘솔에서 크레딧을 충전해 주세요.';
+      case 'not_granted': return 'AI 사용을 허용하지 않아서 답할 수 없어요. 페이지를 새로 열면 다시 물어봐요.';
+      case 'sampling_disabled': case 'not_declared': case 'capability_disabled': case 'capability_removed':
+        return '이 계정이나 화면에서는 AI를 쓸 수 없어요.';
+      case 'session_expired': return '로그인이 만료됐어요. 다시 로그인한 뒤 시도해 주세요.';
+      case 'refused': return '이 내용에는 답하기 어려워요. 다른 방식으로 물어봐 주세요.';
+      case 'prompt_too_large': return '대화가 너무 길어졌어요. 새로 시작해 주세요.';
+      case 'invalid_json': return '답을 정리하지 못했어요. 한 번 더 시도해 주세요.';
+      case 'empty_completion': return '답을 만들지 못했어요. 표현을 바꿔서 다시 물어봐 주세요.';
+      default: return '연결에 문제가 생겼어요. 다시 시도해 주세요.' + (lastDetail ? ' (' + lastDetail + ')' : '');
+    }
+  }
+  function fatal(code) { return ['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed'].indexOf(code) >= 0; }
+
+  /* ---------- context from log ---------- */
+  function logContext() {
+    var seen = log.filter(function (i) { return i.status === 'seen'; }).slice(-30);
+    var want = log.filter(function (i) { return i.status === 'want'; }).slice(-15);
+    var s = '';
+    if (seen.length) s += '본 작품: ' + seen.map(function (i) {
+      return i.title + (i.rating ? ' (별점 ' + i.rating + '/5)' : '') + (i.note ? ' "' + i.note.slice(0, 40) + '"' : '');
+    }).join(', ') + '\n';
+    if (want.length) s += '볼 예정: ' + want.map(function (i) { return i.title; }).join(', ') + '\n';
+    return s || '아직 기록 없음\n';
+  }
+
+  function rules(facts) {
+    return [
+      '너는 "애니 도감" 앱의 AI 친구야. 애니메이션(TV, 극장판, OVA, ONA)에 정통하고, 말투는 편한 존댓말(~해요)로 친근하게 해.',
+      '정확성 규칙: 확실히 아는 사실만 말해. 제목, 방영 연도, 제작사, 감독, 성우, 원작, 줄거리가 확실하지 않으면 지어내지 말고 "이 부분은 확실하지 않아요"라고 말해. 작품 이름을 정확히 모르겠으면 비슷한 이름을 단정하지 말고 되물어. 네 지식은 학습 시점까지라서 최신 방영작이나 방영 일정은 모를 수 있다고 필요할 때 알려줘.',
+      spoilerSafe
+        ? '스포일러 규칙: 지금은 스포 방지 모드야. 결말, 반전, 죽음, 정체 공개 같은 핵심 전개는 절대 말하지 마. 사용자가 이미 말한 범위 안에서만 이야기해.'
+        : '스포일러 규칙: 지금은 스포 허용 모드야. 그래도 스포가 나오기 직전에 한 줄로 "여기부터 스포예요"라고 알려줘.',
+      '대화 규칙: 감상을 나눌 때는 먼저 공감하고, 궁금한 점은 한 번에 하나만 물어봐. 사용자 의견이 너와 달라도 존중하고 이유를 물어봐. 답은 보통 3~6문장으로 짧게, 마크다운 기호(**, #, 표) 없이 평문으로 써.',
+      '사용자 기록:\n' + logContext(),
+      (facts && facts.text)
+        ? '조회된 작품 데이터(AniList):\n' + facts.text + '\n\n위 데이터에 있는 정보는 그대로 따르고, 네 기억과 다르면 데이터를 믿어. 데이터에 없는 세부 사항은 확실하지 않다고 말해. 줄거리는 영문 요약이니 한국어로 옮기되 스포일러 규칙을 지켜. 이 데이터는 대화에서 언급된 작품에 대한 거야.'
+        : (facts && facts.failed
+          ? '작품 데이터 조회에 실패했어. 기억으로 답하되 제작사, 연도, 줄거리 같은 사실 정보는 확실하지 않을 수 있다고 알려줘.'
+          : '이번 질문에는 조회된 작품 데이터가 없어. 기억으로 답하되 확실하지 않은 사실은 그렇다고 말해.')
+    ].join('\n\n');
+  }
+
+  /* ---------- chat ---------- */
+  var msgs = $('#msgs');
+  var turns = [];
+  var ctl = null;
+
+  function scrollDown() { msgs.scrollTop = msgs.scrollHeight; }
+  function bubble(kind, text) { var b = el('div', 'bubble ' + kind, text); msgs.append(b); scrollDown(); return b; }
+
+  var starters = $('#msgs');
+  bubble('bot', '안녕하세요! 보고 싶은 작품이든, 방금 본 작품 감상이든 편하게 얘기해요. 잘 모르는 건 모른다고 말할게요.');
+  var starterBox = el('div', 'chips');
+  [
+    ['○○ 스포 없이 소개해줘', 2],
+    ['○○ 같은 분위기의 작품 알려줘', 2],
+    ['방금 본 작품 얘기하고 싶어', -1],
+    ['오늘은 가볍게 볼 애니가 끌려요', -1]
+  ].forEach(function (c) {
+    var b = el('button', 'chip', c[0]);
+    b.type = 'button';
+    b.addEventListener('click', function () {
+      var ta = $('#input');
+      ta.value = c[0]; autosize(); ta.focus();
+      if (c[1] > 0) ta.setSelectionRange(0, c[1]);
+    });
+    starterBox.append(b);
+  });
+  msgs.append(starterBox);
+
+  function autosize() { var ta = $('#input'); ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 120) + 'px'; }
+  $('#input').addEventListener('input', autosize);
+  $('#input').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); $('#composer').requestSubmit(); }
+  });
+
+  function setBusy(v) {
+    busy = v;
+    var b = $('#send');
+    b.textContent = v ? '멈춤' : '보내기';
+    b.type = v ? 'button' : 'submit';
+    b.disabled = aiState !== 'ready';
+  }
+  $('#send').addEventListener('click', function () { if (busy && ctl) ctl.abort(); });
+
+  $('#composer').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    if (!sample || busy) return;
+    var ta = $('#input');
+    var text = ta.value.trim();
+    if (!text) return;
+    if (starterBox.parentNode) starterBox.remove();
+    ta.value = ''; autosize();
+    bubble('me', text);
+    turns.push({ role: 'user', content: text.slice(0, 2000) });
+    var bot = bubble('bot', '생각 중…');
+    ctl = new AbortController();
+    setBusy(true);
+    try {
+      var facts = await ground(text, ctl.signal, bot);
+      bot.textContent = '생각 중…';
+      var input = [{ role: 'user', content: rules(facts) }].concat(turns.slice(-12));
+      var res = await sample(input, {
+        cache: false,
+        signal: ctl.signal,
+        onText: function (u) { bot.textContent = u.text; scrollDown(); }
+      });
+      turns.push({ role: 'assistant', content: res.text });
+      if (facts && facts.names && facts.names.length) msgs.append(el('div', 'src', '조회한 작품: ' + facts.names.join(' · ') + ' (AniList)'));
+      else if (facts && facts.failed) msgs.append(el('div', 'src', '작품 데이터 조회에 실패해서 AI 기억으로 답했어요. 사실 정보는 확인이 필요해요.'));
+      if (res.truncated) bubble('bot', '(답이 길어서 중간에 끊겼어요. "이어서 말해줘"라고 해 보세요.)');
+    } catch (err) {
+      if (err && err.text) {
+        bot.textContent = err.text + ' …';
+        turns.push({ role: 'assistant', content: err.text });
+      } else if (err && err.code === 'cancelled') {
+        bot.remove();
+      } else {
+        bot.className = 'bubble err';
+        bot.textContent = copyFor(err && err.code);
+        if (err && fatal(err.code)) setAI('off');
+      }
+    } finally {
+      setBusy(false);
+      ctl = null;
+      scrollDown();
+    }
+  });
+
+  /* ---------- recommend ---------- */
+  var REASONS = ['분위기', '스토리', '캐릭터', '작화', '음악', '세계관', '연출', '주제 의식'];
+  var picked = {};
+  var rbox = $('#reasons');
+  REASONS.forEach(function (r) {
+    var b = el('button', 'chip', r);
+    b.type = 'button';
+    b.setAttribute('aria-pressed', 'false');
+    b.addEventListener('click', function () {
+      picked[r] = !picked[r];
+      b.setAttribute('aria-pressed', picked[r] ? 'true' : 'false');
+    });
+    rbox.append(b);
+  });
+
+  var results = $('#results');
+  function renderHint() {
+    results.replaceChildren();
+    var c = el('div', 'card');
+    c.append(el('p', 'hint', '작품 이름을 적으면 분위기, 주제, 전개가 실제로 닮은 작품을 5개 골라줘요. 장르 태그만 같은 작품은 빼요. 본 작품으로 기록한 건 자동으로 제외돼요.'));
+    results.append(c);
+  }
+  renderHint();
+
+  function norm(s) { return String(s || '').toLowerCase().replace(/\s+/g, ''); }
+  function seenSet() {
+    var set = {};
+    log.forEach(function (i) { if (i.status === 'seen') set[norm(i.title)] = true; });
+    return set;
+  }
+
+  var recCtl = null;
+  var FORMAT_KO = { TV: 'TV', MOVIE: '극장판', OVA: 'OVA', ONA: 'ONA', SPECIAL: '스페셜', TV_SHORT: 'TV 단편', MUSIC: '뮤직' };
+  var GENRE_KO = {
+    'Action': '액션', 'Adventure': '모험', 'Comedy': '코미디', 'Drama': '드라마', 'Ecchi': '에치', 'Fantasy': '판타지',
+    'Horror': '호러', 'Mahou Shoujo': '마법소녀', 'Mecha': '메카', 'Music': '음악', 'Mystery': '미스터리',
+    'Psychological': '심리', 'Romance': '로맨스', 'Sci-Fi': 'SF', 'Slice of Life': '일상', 'Sports': '스포츠',
+    'Supernatural': '초자연', 'Thriller': '스릴러'
+  };
+  function noticeCard(text) { var c = el('div', 'card'); c.append(el('p', 'hint', text)); return c; }
+
+  async function recommendGrounded(fav, reasons, seen, signal) {
+    var names = [];
+    try { names = await extractTitles(fav, signal); } catch (e) { if (e && e.code === 'cancelled') throw e; }
+    var d = await anilist(Q_REC, { q: names[0] || fav }, signal);
+    var base = d && d.Page && d.Page.media && d.Page.media[0];
+    if (!base) return null;
+    var skip = {};
+    seen.forEach(function (t) { skip[norm(t)] = true; });
+    allTitles(base).forEach(function (t) { skip[norm(t)] = true; });
+    var cands = [];
+    var nodes = (base.recommendations && base.recommendations.nodes) || [];
+    nodes.forEach(function (n) {
+      var m = n && n.mediaRecommendation;
+      if (!m || !(n.rating > 0)) return;
+      if (allTitles(m).some(function (t) { return skip[norm(t)]; })) return;
+      if (cands.some(function (c) { return c.m.id === m.id; })) return;
+      cands.push({ m: m, rating: n.rating });
+    });
+    cands = cands.slice(0, 8);
+    if (cands.length < 2) return { base: base, cards: [] };
+    var list = cands.map(function (c) {
+      return 'id ' + c.m.id + ': ' + allTitles(c.m).join(' / ') + '\n  장르: ' + (c.m.genres || []).join(', ') +
+        ' | 태그: ' + tNames(c.m, 6).join(', ') + '\n  줄거리(영문): ' + cleanDesc(c.m.description, 260);
+    }).join('\n');
+    var prompt = [
+      '너는 애니메이션 추천 도우미야. 기준 작품과, AniList 커뮤니티가 "이 작품을 좋아하면 이것도"라고 추천한 후보 목록이 있어.',
+      '기준 작품:\n' + factText(base),
+      '사용자가 특히 좋았던 점: ' + (reasons.length ? reasons.join(', ') : '따로 고르지 않음'),
+      '후보:\n' + list,
+      '규칙:\n- 후보 중에서만 고르고, 가장 닮은 최대 5개를 골라. 좋았던 점을 골랐다면 그 요소가 닮은 작품을 우선해.\n- 닮은 점은 위 데이터(장르, 태그, 줄거리)에 근거해서 1~2문장으로 써. 데이터에 없는 사실은 지어내지 마.\n- 스포일러: ' + (spoilerSafe ? '절대 쓰지 마. 결말, 반전, 핵심 전개 없이 설명해.' : '꼭 필요한 최소한만 허용해.') + '\n- title_ko는 한국에서 통용되는 제목을 확실히 알 때만 쓰고, 모르면 영어 또는 로마자 제목을 그대로 써.',
+      'JSON 배열만 출력해. 항목 형식: {"id": 후보 id(숫자), "title_ko": "제목", "similar": "닮은 점", "different": "다른 점 1문장"}'
+    ].join('\n\n');
+    var data = await sample.json(prompt, { signal: signal });
+    var byId = {};
+    cands.forEach(function (c) { byId[c.m.id] = c; });
+    var cards = [];
+    (Array.isArray(data) ? data : []).forEach(function (x) {
+      var c = x && byId[Number(x.id)];
+      if (!c || cards.some(function (k) { return k._id === c.m.id; })) return;
+      var m = c.m, t = m.title || {};
+      cards.push({
+        _id: m.id,
+        title_ko: String(x.title_ko || t.english || t.romaji || ''),
+        title_orig: [t.romaji, t.native].filter(Boolean).join(' · '),
+        year: m.seasonYear || null,
+        format: FORMAT_KO[m.format] || m.format || '',
+        genres: (m.genres || []).slice(0, 3).map(function (g) { return GENRE_KO[g] || g; }),
+        similar: x.similar,
+        different: x.different,
+        confidence: 'high',
+        note_tag: 'AniList 추천 +' + c.rating
+      });
+    });
+    return { base: base, cards: cards.slice(0, 5) };
+  }
+
+  async function recommendFallback(fav, reasons, seen, signal) {
+    var prompt = [
+      '너는 애니메이션에 정통한 추천 도우미야.',
+      '사용자가 좋아하는 작품: ' + fav,
+      '특히 좋았던 점: ' + (reasons.length ? reasons.join(', ') : '따로 고르지 않음'),
+      '이미 본 작품(추천하지 마): ' + (seen.length ? seen.join(', ') : '없음'),
+      '스포일러: ' + (spoilerSafe ? '절대 쓰지 마. 결말, 반전, 핵심 전개 없이 설명해.' : '꼭 필요한 최소한만 허용하고, 가능하면 피해.'),
+      '규칙:\n- 실제로 존재하는 작품만 고르고, 제목이나 연도가 확실하지 않으면 그 작품은 빼.\n- 장르 태그만 같은 작품이 아니라 분위기, 주제, 전개, 연출이 실제로 닮은 작품을 골라.\n- 유명한 작품만 늘어놓지 말고, 결이 서로 다른 5개를 골라.',
+      '입력한 작품이 무엇인지 모르거나 여러 작품으로 읽히면 이 JSON 객체 하나만 출력해: {"unknown": true, "note": "되묻는 한국어 한두 문장"}',
+      '그 외에는 JSON 배열만 출력해. 항목 형식: {"title_ko": "한국에서 통용되는 제목", "title_orig": "원제", "year": 첫 방영 연도(숫자, 모르면 null), "format": "TV" | "극장판" | "OVA" | "ONA", "genres": ["최대 3개"], "similar": "닮은 점 1~2문장", "different": "다른 점 1문장", "confidence": "high" | "medium" | "low"}',
+      'confidence는 제목과 연도 같은 사실 정보를 얼마나 확신하는지야.'
+    ].join('\n\n');
+    var data = await sample.json(prompt, { signal: signal });
+    if (data && !Array.isArray(data) && data.unknown) return { unknown: String(data.note || '어떤 작품인지 잘 모르겠어요. 원제나 방영 연도를 함께 적어 주세요.') };
+    if (!Array.isArray(data)) throw { code: 'invalid_json' };
+    var skip = seenSet();
+    return {
+      list: data.filter(function (r) {
+        return r && (r.title_ko || r.title_orig) && !skip[norm(r.title_ko)] && !skip[norm(r.title_orig)];
+      }).slice(0, 6)
+    };
+  }
+
+  $('#findBtn').addEventListener('click', async function () {
+    if (!sample || recBusy) return;
+    var fav = $('#fav').value.trim();
+    if (!fav) { $('#fav').focus(); return; }
+    var reasons = REASONS.filter(function (r) { return picked[r]; });
+    var seen = log.filter(function (i) { return i.status === 'seen'; }).map(function (i) { return i.title; }).slice(-40);
+
+    recBusy = true; $('#findBtn').disabled = true;
+    recCtl = new AbortController();
+    results.replaceChildren();
+    var wait = el('div', 'card busy');
+    wait.append(el('span', 'hint', '작품 데이터를 찾아서 비교하는 중이에요. 10~30초 걸려요.'));
+    var stop = el('button', 'btn ghost small', '멈춤');
+    stop.type = 'button';
+    stop.addEventListener('click', function () { if (recCtl) recCtl.abort(); });
+    wait.append(stop);
+    results.append(wait);
+
+    try {
+      var out = null, lookupFailed = false;
+      try {
+        out = await recommendGrounded(fav, reasons, seen, recCtl.signal);
+      } catch (e) {
+        if (e && e.code && e.code !== 'invalid_json') throw e;
+        lookupFailed = true;
+      }
+      results.replaceChildren();
+      if (out && out.cards.length) {
+        results.append(noticeCard('기준 작품: ' + titleOf(out.base) + (out.base.seasonYear ? ' (' + out.base.seasonYear + ')' : '') + '. AniList 커뮤니티 추천을 바탕으로 골랐어요. 다른 작품이 잡혔다면 원제나 영어 제목으로 다시 검색해 보세요.'));
+        out.cards.forEach(function (c) { results.append(recCard(c)); });
+      } else {
+        var fb = await recommendFallback(fav, reasons, seen, recCtl.signal);
+        results.replaceChildren();
+        if (fb.unknown) {
+          results.append(noticeCard(fb.unknown));
+        } else {
+          results.append(noticeCard((lookupFailed ? 'AniList 조회에 실패해서' : (out ? '데이터에서 후보가 부족해서' : 'AniList에서 이 작품을 찾지 못해서')) + ' AI 기억으로 골랐어요. 제목과 연도는 확인이 필요해요.'));
+          if (!fb.list.length) results.append(noticeCard('새로 보여줄 작품을 찾지 못했어요. 좋았던 점을 바꿔서 다시 시도해 보세요.'));
+          fb.list.forEach(function (r) { results.append(recCard(r)); });
+        }
+      }
+    } catch (err) {
+      results.replaceChildren();
+      if (err && err.code === 'cancelled') { renderHint(); }
+      else {
+        results.append(noticeCard(copyFor(err && err.code)));
+        if (err && fatal(err.code)) setAI('off');
+      }
+    } finally {
+      recBusy = false; recCtl = null;
+      $('#findBtn').disabled = aiState !== 'ready';
+    }
+  });
+
+  function recCard(r) {
+    var c = el('article', 'card');
+    var head = el('div');
+    head.append(el('h3', null, String(r.title_ko || r.title_orig).slice(0, 80)));
+    if (r.title_orig && r.title_orig !== r.title_ko) head.append(el('div', 'orig', String(r.title_orig).slice(0, 100)));
+    c.append(head);
+    var tags = el('div', 'tags');
+    if (r.year) tags.append(el('span', 'tag', String(r.year)));
+    if (r.format) tags.append(el('span', 'tag', String(r.format).slice(0, 10)));
+    (Array.isArray(r.genres) ? r.genres : []).slice(0, 3).forEach(function (g) { tags.append(el('span', 'tag', String(g).slice(0, 12))); });
+    if (r.note_tag) tags.append(el('span', 'tag', String(r.note_tag).slice(0, 24)));
+    if (r.confidence && r.confidence !== 'high') tags.append(el('span', 'tag warn', '정보 확인 권장'));
+    if (tags.childNodes.length) c.append(tags);
+    if (r.similar) { var p1 = el('p', 'line'); p1.append(el('b', null, '닮은 점'), document.createTextNode(String(r.similar).slice(0, 300))); c.append(p1); }
+    if (r.different) { var p2 = el('p', 'line'); p2.append(el('b', null, '다른 점'), document.createTextNode(String(r.different).slice(0, 200))); c.append(p2); }
+    var title = String(r.title_ko || r.title_orig).slice(0, 80);
+    var acts = el('div', 'actions');
+    var add = el('button', 'btn ghost small', '볼 예정에 담기');
+    add.type = 'button';
+    var has = log.some(function (i) { return norm(i.title) === norm(title); });
+    if (has) { add.textContent = '기록에 있어요'; add.disabled = true; }
+    add.addEventListener('click', function () {
+      addEntry(title, 'want', 0, '');
+      add.textContent = '담았어요'; add.disabled = true;
+    });
+    acts.append(add);
+    var talk = el('button', 'btn ghost small', '이 작품 얘기하기');
+    talk.type = 'button';
+    talk.addEventListener('click', function () {
+      show('chat'); try { location.hash = 'chat'; } catch (e) {}
+      var ta = $('#input'); ta.value = title + ' 스포 없이 소개해줘'; autosize(); ta.focus();
+    });
+    acts.append(talk);
+    c.append(acts);
+    return c;
+  }
+
+  /* ---------- log ---------- */
+  var newStatus = 'seen', newRating = 0;
+  var segBtns = document.querySelectorAll('#statusSeg .chip');
+  segBtns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      newStatus = b.getAttribute('data-s');
+      segBtns.forEach(function (x) { x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+      $('#ratingField').hidden = newStatus === 'want';
+    });
+  });
+  var starBox = $('#stars');
+  var starBtns = [];
+  for (var s = 1; s <= 5; s++) (function (n) {
+    var b = el('button', 'star', '★');
+    b.type = 'button';
+    b.setAttribute('aria-label', '별점 ' + n + '점');
+    b.setAttribute('aria-pressed', 'false');
+    b.addEventListener('click', function () {
+      newRating = newRating === n ? 0 : n;
+      starBtns.forEach(function (x, i) { x.setAttribute('aria-pressed', i < newRating ? 'true' : 'false'); });
+    });
+    starBtns.push(b); starBox.append(b);
+  })(s);
+
+  function addEntry(title, status, rating, note) {
+    log.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), title: title, status: status, rating: rating, note: note });
+    save(KEY_LOG, log);
+    renderLog();
+  }
+  function logMsg(t) { var m = $('#logMsg'); m.textContent = t; m.hidden = !t; }
+
+  $('#addLog').addEventListener('click', function () {
+    var title = $('#logTitle').value.trim();
+    if (!title) { logMsg('작품 이름을 적어 주세요.'); $('#logTitle').focus(); return; }
+    if (log.some(function (i) { return norm(i.title) === norm(title); })) { logMsg('이미 기록에 있는 작품이에요.'); return; }
+    addEntry(title, newStatus, newStatus === 'seen' ? newRating : 0, $('#logNote').value.trim());
+    $('#logTitle').value = ''; $('#logNote').value = '';
+    newRating = 0; starBtns.forEach(function (x) { x.setAttribute('aria-pressed', 'false'); });
+    logMsg('');
+  });
+
+  function stars(n) { return '★★★★★'.slice(0, n) + '☆☆☆☆☆'.slice(0, 5 - n); }
+
+  function logItem(i) {
+    var c = el('article', 'card');
+    c.append(el('h3', null, i.title));
+    if (i.status === 'seen' && i.rating) c.append(el('div', 'rating', stars(i.rating)));
+    if (i.note) c.append(el('p', 'line', i.note));
+    var acts = el('div', 'actions');
+    var rec = el('button', 'btn ghost small', '이 작품으로 추천받기');
+    rec.type = 'button';
+    rec.addEventListener('click', function () {
+      $('#fav').value = i.title; show('recommend'); try { location.hash = 'recommend'; } catch (e) {}
+    });
+    acts.append(rec);
+    if (i.status === 'want') {
+      var seen = el('button', 'btn ghost small', '봤어요로 옮기기');
+      seen.type = 'button';
+      seen.addEventListener('click', function () { i.status = 'seen'; save(KEY_LOG, log); renderLog(); });
+      acts.append(seen);
+    }
+    var del = el('button', 'btn ghost small', '삭제');
+    del.type = 'button';
+    var armed = false, timer = null;
+    del.addEventListener('click', function () {
+      if (!armed) {
+        armed = true; del.textContent = '정말 삭제할까요?';
+        timer = setTimeout(function () { armed = false; del.textContent = '삭제'; }, 3000);
+      } else {
+        clearTimeout(timer);
+        log = log.filter(function (x) { return x.id !== i.id; });
+        save(KEY_LOG, log); renderLog();
+      }
+    });
+    acts.append(del);
+    c.append(acts);
+    return c;
+  }
+
+  function renderLog() {
+    var box = $('#logList');
+    box.replaceChildren();
+    var wrap = el('div', 'scroll-inner');
+    wrap.style.cssText = 'display:flex;flex-direction:column;gap:14px';
+    var seen = log.filter(function (i) { return i.status === 'seen'; });
+    var want = log.filter(function (i) { return i.status === 'want'; });
+    if (!log.length) {
+      var ex = el('article', 'card');
+      var exHead = el('div', 'tags'); exHead.append(el('span', 'tag ex', '예시'));
+      ex.append(exHead, el('h3', null, '카우보이 비밥'), el('div', 'rating', stars(5)),
+        el('p', 'line', '에피소드마다 장르가 바뀌는데 분위기는 끝까지 같았다'));
+      wrap.append(el('div', 'section-title', '이렇게 쌓여요'), ex);
+    }
+    if (seen.length) { wrap.append(el('div', 'section-title', '봤어요 ' + seen.length)); seen.slice().reverse().forEach(function (i) { wrap.append(logItem(i)); }); }
+    if (want.length) { wrap.append(el('div', 'section-title', '볼 예정 ' + want.length)); want.slice().reverse().forEach(function (i) { wrap.append(logItem(i)); }); }
+    box.append(wrap);
+  }
+  renderLog();
+
+  /* ---------- settings ---------- */
+  var provBtns = document.querySelectorAll('#provSeg .chip');
+  var HINTS = {
+    gemini: 'aistudio.google.com/apikey 에서 구글 계정으로 무료 키를 만들 수 있어요. 무료 구간에서는 입력한 내용이 구글 서비스 개선에 쓰일 수 있어요. 한도는 자주 바뀌어요.',
+    claude: 'console.anthropic.com 에서 키를 만들고 크레딧을 먼저 충전해야 해요. 사용한 만큼 청구돼요.'
+  };
+  function maskKey(k) { return k ? '저장됨: ' + k.slice(0, 4) + '…' + k.slice(-4) : '저장된 키가 없어요.'; }
+  function keyMsg(t) { $('#keyMsg').textContent = t; }
+  function paintSettings() {
+    var p = getProvider();
+    provBtns.forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-p') === p ? 'true' : 'false'); });
+    $('#provHint').textContent = HINTS[p];
+    $('#modelName').value = lsGet('anime-ai-model-' + p);
+    $('#modelName').placeholder = PROVIDERS[p].model;
+    keyMsg(maskKey(getKey(p)));
+  }
+  provBtns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      lsSet('anime-ai-provider', b.getAttribute('data-p'));
+      paintSettings();
+      refreshAI();
+    });
+  });
+  $('#saveKey').addEventListener('click', function () {
+    var p = getProvider();
+    var v = $('#apikey').value.trim();
+    var mdl = $('#modelName').value.trim();
+    if (mdl) lsSet('anime-ai-model-' + p, mdl); else lsDel('anime-ai-model-' + p);
+    if (v) {
+      if (p === 'claude' && v.indexOf('sk-ant-') !== 0) { keyMsg('Claude 키는 sk-ant- 로 시작해요. 다시 확인해 주세요.'); return; }
+      if (v.length < 20) { keyMsg('키가 너무 짧아요. 전체를 붙여넣었는지 확인해 주세요.'); return; }
+      if (!lsSet('anime-ai-key-' + p, v)) { keyMsg('이 브라우저에서는 키를 저장할 수 없어요.'); return; }
+      $('#apikey').value = '';
+    }
+    paintSettings();
+    refreshAI();
+    if (!getKey(p)) keyMsg('키를 입력해 주세요.');
+  });
+  $('#clearKey').addEventListener('click', function () {
+    lsDel('anime-ai-key-' + getProvider());
+    paintSettings();
+    refreshAI();
+    keyMsg('키를 삭제했어요.');
+  });
+  paintSettings();
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+  }
+})();
+</script>
+</body>
+</html>

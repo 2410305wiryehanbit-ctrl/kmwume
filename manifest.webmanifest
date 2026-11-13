@@ -1,0 +1,26 @@
+{
+  "name": "애니 도감",
+  "short_name": "애니 도감",
+  "description": "작품 얘기와 취향 추천을 해주는 AI 애니 친구",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0E1220",
+  "theme_color": "#2B55F5",
+  "lang": "ko",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
