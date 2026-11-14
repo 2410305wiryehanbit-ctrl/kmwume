@@ -435,7 +435,7 @@
           var d;
           try { d = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
           var out = pick(d);
-          if (out.error) { lastDetail = String(out.error).slice(0, 90); throw { code: 'upstream_error', message: out.error }; }
+          if (out.error) { lastDetail = String(out.error).slice(0, 90); throw { code: /high demand|overloaded|unavailable|try again later/i.test(String(out.error)) ? 'overloaded' : 'upstream_error', message: out.error }; }
           if (out.text) { full += out.text; if (opts.onText) opts.onText({ text: full, delta: out.text }); }
           if (out.stop) stop = out.stop;
         }
@@ -525,7 +525,21 @@
           if (res.status === 503) he.code = 'overloaded';
           throw he;
         }
-        return await readStream(res, opts, p === 'gemini' ? pickGemini : pickClaude, arm, st);
+        try {
+          return await readStream(res, opts, p === 'gemini' ? pickGemini : pickClaude, arm, st);
+        } catch (se) {
+          if (p === 'gemini' && se && se.code === 'overloaded' && !se.text) {
+            if ((opts._fb || 0) + 1 < order.length) { done(); return await s(input, Object.assign({}, opts, { _fb: (opts._fb || 0) + 1 })); }
+            if ((opts._r || 0) < 2) {
+              var w2 = ((opts._r || 0) + 1) * 2000;
+              done();
+              await new Promise(function (resolve) { setTimeout(resolve, w2); });
+              if (opts.signal && opts.signal.aborted) throw { code: 'cancelled', message: 'cancelled' };
+              return await s(input, Object.assign({}, opts, { _fb: 0, _r: (opts._r || 0) + 1 }));
+            }
+          }
+          throw se;
+        }
       } finally { done(); }
     }
     s.json = async function (input, opts) {
