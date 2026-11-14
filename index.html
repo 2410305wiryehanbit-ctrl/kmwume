@@ -513,9 +513,9 @@
     if (j.errors && !j.data) throw new Error('anilist query');
     return j.data;
   }
-  var MEDIA_FIELDS = 'id popularity title{romaji english native} format status episodes season seasonYear averageScore genres source description(asHtml:false) studios(isMain:true){nodes{name}} tags{name rank isMediaSpoiler}';
+  var MEDIA_FIELDS = 'id popularity synonyms title{romaji english native} format status episodes season seasonYear averageScore genres source description(asHtml:false) studios(isMain:true){nodes{name}} tags{name rank isMediaSpoiler}';
   var Q_SEARCH = 'query($q:String){Page(perPage:8){media(search:$q,type:ANIME,sort:SEARCH_MATCH){' + MEDIA_FIELDS + '}}}';
-  var Q_RECBY = 'query($id:Int){Media(id:$id){recommendations(sort:RATING_DESC,perPage:15){nodes{rating mediaRecommendation{id title{romaji english native} format seasonYear episodes genres averageScore description(asHtml:false) tags{name rank isMediaSpoiler}}}}}}';
+  var Q_RECBY = 'query($id:Int){Media(id:$id){recommendations(sort:RATING_DESC,perPage:15){nodes{rating mediaRecommendation{id synonyms title{romaji english native} format seasonYear episodes genres averageScore description(asHtml:false) tags{name rank isMediaSpoiler}}}}}}';
 
   function cleanDesc(s, n) {
     return String(s || '').replace(/~!.*?!~/gs, '').replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, n);
@@ -539,7 +539,7 @@
 
   var wikiCache = {};
   var pasted = '';
-  var WIKI = { ko: 'https://ko.wikipedia.org/w/api.php', en: 'https://en.wikipedia.org/w/api.php' };
+  var WIKI = { ko: 'https://ko.wikipedia.org/w/api.php', en: 'https://en.wikipedia.org/w/api.php', data: 'https://www.wikidata.org/w/api.php' };
 
   function pickBest(list, q) {
     list = (list || []).filter(Boolean);
@@ -580,7 +580,7 @@
     var t = m.title || {};
     var qs = [t.native, t.romaji, t.english].filter(Boolean).slice(0, 2);
     for (var i = 0; i < qs.length; i++) {
-      var j = await wikiApi(lang, { generator: 'search', gsrsearch: qs[i], gsrlimit: '4', gsrnamespace: '0', prop: 'extracts', exintro: '1', explaintext: '1', exlimit: '4', redirects: '1' }, signal);
+      var j = await wikiApi(lang, { generator: 'search', gsrsearch: qs[i], gsrlimit: '4', gsrnamespace: '0', prop: 'extracts|langlinks|pageprops', exintro: '1', explaintext: '1', exlimit: '4', redirects: '1', lllang: 'ko', ppprop: 'wikibase_item' }, signal);
       var pages = ((j.query && j.query.pages) || []).slice().sort(function (a, b) { return (a.index || 0) - (b.index || 0); });
       for (var k = 0; k < pages.length; k++) {
         if (pages[k].extract && wikiMatches(pages[k].extract, m)) return pages[k];
@@ -596,13 +596,46 @@
     return text.slice(from, from + n).replace(/\n{2,}/g, '\n').trim();
   }
 
+  function cleanKo(t) { return String(t || '').replace(/\s*\([^)]*\)\s*$/, '').trim(); }
+
+  function hangulSynonym(m) {
+    return ((m.synonyms || []).filter(function (s) { return /[가-힣]/.test(s); })[0]) || '';
+  }
+
+  async function koTitleFromPages(m, ko, en, signal) {
+    if (ko && ko.title) return cleanKo(ko.title);
+    if (en) {
+      var ll = (en.langlinks || []).filter(function (l) { return l && l.lang === 'ko'; })[0];
+      var llt = ll && (ll.title || ll['*']);
+      if (llt) return cleanKo(llt);
+      var qid = en.pageprops && en.pageprops.wikibase_item;
+      if (qid) {
+        try {
+          var j = await wikiApi('data', { action: 'wbgetentities', ids: qid, props: 'labels|sitelinks', languages: 'ko', sitefilter: 'kowiki' }, signal);
+          var ent = j.entities && j.entities[qid];
+          var lab = ent && ((ent.sitelinks && ent.sitelinks.kowiki && ent.sitelinks.kowiki.title) || (ent.labels && ent.labels.ko && ent.labels.ko.value));
+          if (lab) return cleanKo(lab);
+        } catch (e) { if (e && e.code === 'cancelled') throw e; }
+      }
+    }
+    return hangulSynonym(m);
+  }
+
+  async function koTitleOf(m, signal) {
+    var pages = await Promise.all(['ko', 'en'].map(async function (lang) {
+      try { return await wikiFind(lang, m, signal); } catch (e) { if (e && e.code === 'cancelled') throw e; return null; }
+    }));
+    return koTitleFromPages(m, pages[0], pages[1], signal);
+  }
+
   async function wikiBundle(m, signal) {
     if (wikiCache[m.id]) return wikiCache[m.id];
-    var out = { ko: null, en: null };
+    var out = { ko: null, en: null, pages: { ko: null, en: null } };
     await Promise.all(['ko', 'en'].map(async function (lang) {
       try {
         var page = await wikiFind(lang, m, signal);
         if (!page) return;
+        out.pages[lang] = page;
         var full = '';
         try {
           var j = await wikiApi(lang, { prop: 'extracts', explaintext: '1', exsectionformat: 'plain', pageids: String(page.pageid) }, signal);
@@ -612,17 +645,19 @@
         out[lang] = { title: page.title, story: sliceStory(full || page.extract, lang === 'ko' ? 2500 : 3500) };
       } catch (e) { if (e && e.code === 'cancelled') throw e; }
     }));
-    if (out.ko || out.en) wikiCache[m.id] = out;
+    if (out.pages.ko || out.pages.en) wikiCache[m.id] = out;
     return out;
   }
 
   async function wikiText(m, signal) {
-    var w;
-    try { w = await wikiBundle(m, signal); } catch (e) { if (e && e.code === 'cancelled') throw e; return ''; }
+    var w, kt = '';
+    try { w = await wikiBundle(m, signal); } catch (e) { if (e && e.code === 'cancelled') throw e; return { text: '', kt: hangulSynonym(m) }; }
+    try { kt = await koTitleFromPages(m, w.pages.ko, w.pages.en, signal); } catch (e) { if (e && e.code === 'cancelled') throw e; kt = ''; }
     var s = '';
+    if (kt) s += '\n  한국어 제목: ' + kt;
     if (w.ko && w.ko.story) s += '\n  [위키백과 한국어 "' + w.ko.title + '"]\n' + w.ko.story;
     if (w.en && w.en.story) s += '\n  [위키백과 영어 "' + w.en.title + '"]\n' + w.en.story;
-    return s;
+    return { text: s, kt: kt };
   }
 
   async function extractTitles(text, signal) {
@@ -656,14 +691,14 @@
     }
     if (!items.length) return { text: '', names: [], failed: true };
     var wikiUsed = false;
-    var texts = await Promise.all(items.map(async function (m, i) {
-      var w = i < 2 ? await wikiText(m, signal) : '';
-      if (w) wikiUsed = true;
-      return factText(m) + w;
+    var res = await Promise.all(items.map(async function (m, i) {
+      var w = i < 2 ? await wikiText(m, signal) : { text: '', kt: hangulSynonym(m) };
+      if (w.text) wikiUsed = true;
+      return { text: factText(m) + w.text, kt: w.kt };
     }));
     lastFacts = {
-      text: texts.join('\n\n'),
-      names: items.map(function (m) { return titleOf(m) + (m.seasonYear ? ' (' + m.seasonYear + ')' : ''); }),
+      text: res.map(function (r) { return r.text; }).join('\n\n'),
+      names: items.map(function (m, i) { return (res[i].kt || titleOf(m)) + (m.seasonYear ? ' (' + m.seasonYear + ')' : ''); }),
       sources: wikiUsed ? 'AniList · 위키백과' : 'AniList',
       failed: false
     };
@@ -891,6 +926,7 @@
       cards.push({
         _id: m.id,
         _m: m,
+        ko: false,
         shared: sharedOf(base, m),
         title_ko: titleOf(m),
         title_orig: [t.romaji, t.native].filter(Boolean).join(' · '),
@@ -906,8 +942,8 @@
     cards = cards.slice(0, 5);
     await Promise.all(cards.map(async function (c) {
       try {
-        var page = await wikiFind('ko', c._m, signal);
-        if (page) c.title_ko = page.title.replace(/\s*\([^)]*\)\s*$/, '');
+        var kt = await koTitleOf(c._m, signal);
+        if (kt) { c.title_ko = kt; c.ko = true; }
       } catch (e) { if (e && e.code === 'cancelled') throw e; }
     }));
     return { base: base, cards: cards };
@@ -1001,6 +1037,7 @@
     if (r.format) tags.append(el('span', 'tag', String(r.format).slice(0, 10)));
     (Array.isArray(r.genres) ? r.genres : []).slice(0, 3).forEach(function (g) { tags.append(el('span', 'tag', String(g).slice(0, 12))); });
     if (r.note_tag) tags.append(el('span', 'tag', String(r.note_tag).slice(0, 24)));
+    if (r.ko === false) tags.append(el('span', 'tag ex', '한글 제목 미확인'));
     if (r.confidence && r.confidence !== 'high') tags.append(el('span', 'tag warn', '정보 확인 권장'));
     if (tags.childNodes.length) c.append(tags);
     if (r.similar) { var p1 = el('p', 'line'); p1.append(el('b', null, '닮은 점'), document.createTextNode(String(r.similar).slice(0, 300))); c.append(p1); }
