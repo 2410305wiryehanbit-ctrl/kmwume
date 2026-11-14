@@ -203,6 +203,10 @@
             <span class="label">특히 좋았던 점 (여러 개 선택)</span>
             <div class="chips" id="reasons"></div>
           </div>
+          <div class="field">
+            <label class="label" for="reasonText">좋았던 점 직접 적기 (선택)</label>
+            <input type="text" id="reasonText" maxlength="200" placeholder="예: 둘이 티키타카하는 대사가 좋았어요" autocomplete="off">
+          </div>
           <button class="btn" id="findBtn" type="button" disabled>비슷한 작품 찾기</button>
         </div>
         <div id="results"></div>
@@ -841,7 +845,7 @@
   });
 
   /* ---------- recommend ---------- */
-  var REASONS = ['분위기', '스토리', '캐릭터', '작화', '음악', '세계관', '연출', '주제 의식'];
+  var REASONS = ['분위기', '스토리', '캐릭터', '작화', '음악', '세계관', '연출', '주제 의식', '반전', '전개 속도', '캐릭터 성장', '인물 관계', '케미', '개그', '감동', '힐링', '긴장감', '액션', '로맨스', '성우', '대사', '결말', '여운', '복선', '설정 디테일', '일상 묘사', '어두운 분위기', '밝은 분위기'];
   var picked = {};
   var rbox = $('#reasons');
   REASONS.forEach(function (r) {
@@ -977,6 +981,8 @@
     var fav = $('#fav').value.trim();
     if (!fav) { $('#fav').focus(); return; }
     var reasons = REASONS.filter(function (r) { return picked[r]; });
+    var extraReason = $('#reasonText').value.trim().slice(0, 200);
+    if (extraReason) reasons.push('직접 적은 내용: ' + extraReason);
     var seen = log.filter(function (i) { return i.status === 'seen'; }).map(function (i) { return i.title; }).slice(-40);
 
     recBusy = true; $('#findBtn').disabled = true;
