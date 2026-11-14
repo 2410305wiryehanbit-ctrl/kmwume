@@ -514,7 +514,16 @@
             done();
             return await s(input, Object.assign({}, opts, { _fb: (opts._fb || 0) + 1 }));
           }
-          throw await httpError(res);
+          if (p === 'gemini' && [429, 503].indexOf(res.status) >= 0 && (opts._r || 0) < 2 && order.length === (opts._fb || 0) + 1) {
+            var wait = ((opts._r || 0) + 1) * 2000;
+            done();
+            await new Promise(function (resolve) { setTimeout(resolve, wait); });
+            if (opts.signal && opts.signal.aborted) throw { code: 'cancelled', message: 'cancelled' };
+            return await s(input, Object.assign({}, opts, { _fb: 0, _r: (opts._r || 0) + 1 }));
+          }
+          var he = await httpError(res);
+          if (res.status === 503) he.code = 'overloaded';
+          throw he;
         }
         return await readStream(res, opts, p === 'gemini' ? pickGemini : pickClaude, arm, st);
       } finally { done(); }
@@ -784,6 +793,7 @@
       case 'prompt_too_large': return '대화가 너무 길어졌어요. 새로 시작해 주세요.';
       case 'invalid_json': return '답을 정리하지 못했어요. 한 번 더 시도해 주세요.';
       case 'empty_completion': return '답을 만들지 못했어요. 표현을 바꿔서 다시 물어봐 주세요.';
+      case 'overloaded': return 'Google AI 서버가 지금 많이 붐벼요. 몇 분 뒤에 다시 눌러 주세요. 계속 그러면 설정에서 응답 속도를 바꿔 보세요.';
       case 'timeout': return '응답이 너무 늦어요. 잠시 뒤에 다시 시도하거나, 설정에서 모델 이름을 gemini-3.5-flash-lite 로 바꿔 보세요.';
       default: return '연결에 문제가 생겼어요. 다시 시도해 주세요.' + (lastDetail ? ' (' + lastDetail + ')' : '');
     }
