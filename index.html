@@ -265,6 +265,14 @@
           <div class="hint" id="keyMsg"></div>
         </div>
         <div class="card">
+          <h3>응답 속도 (Gemini)</h3>
+          <div class="seg" id="speedSeg">
+            <button type="button" class="chip" data-q="fast" aria-pressed="true">속도 우선</button>
+            <button type="button" class="chip" data-q="quality" aria-pressed="false">품질 우선</button>
+          </div>
+          <p class="hint">속도 우선은 가벼운 모델을 먼저 써서 훨씬 빨라요. 품질 우선은 더 큰 모델을 써서 답이 풍부하지만 느릴 수 있어요. 모델 이름을 직접 적었다면 그 모델이 우선이에요.</p>
+        </div>
+        <div class="card">
           <h3>작품 정보 출처</h3>
           <p class="hint">작품 정보는 AniList 공개 데이터베이스와 위키백과(한국어, 영어)에서 조회해요. 조회에 성공하면 답변 아래에 "조회한 작품"이 표시돼요. 표시가 없으면 AI 기억으로만 답한 거라 틀릴 수 있어요.</p>
         </div>
@@ -347,6 +355,7 @@
       '작품 정보는 AniList와 위키백과에서 확인해 답해요. 조회 표시가 없으면 AI 기억이라 틀릴 수 있어요.';
   }
   var busy = false, recBusy = false;
+  var TIMEOUTS = { head: 30000, first: 90000, idle: 30000, aniList: 12000, wiki: 10000, title: 12000, total: 150000, chatWiki: 5000 };
   var PROVIDERS = {
     gemini: { label: 'Gemini', model: 'gemini-3.8-flash', fallbacks: ['gemini-3.5-flash-lite'] },
     claude: { label: 'Claude', model: 'claude-sonnet-5-5' }
@@ -399,14 +408,24 @@
     return { text: text, stop: c.finishReason && c.finishReason !== 'STOP' ? c.finishReason : null };
   }
 
-  async function readStream(res, opts, pick) {
+  function geminiOrder(opts) {
+    var custom = lsGet('anime-ai-model-gemini');
+    if (custom) return [custom];
+    var main = PROVIDERS.gemini.model, lite = PROVIDERS.gemini.fallbacks[0];
+    var quality = lsGet('anime-ai-speed') === 'quality';
+    return (opts.fast || !quality) ? [lite, main] : [main, lite];
+  }
+
+  async function readStream(res, opts, pick, arm, st) {
     var reader = res.body.getReader();
     var dec = new TextDecoder();
     var buf = '', full = '', stop = null;
+    arm(opts.firstMs || TIMEOUTS.first);
     try {
       for (;;) {
         var r = await reader.read();
         if (r.done) break;
+        arm(TIMEOUTS.idle);
         buf += dec.decode(r.value, { stream: true });
         var parts = buf.split('\n');
         buf = parts.pop();
@@ -423,7 +442,7 @@
       }
     } catch (e) {
       var partial = full || undefined;
-      if (e && e.name === 'AbortError') throw { code: 'cancelled', message: 'cancelled', text: partial };
+      if (e && e.name === 'AbortError') throw { code: st.timedOut ? 'timeout' : 'cancelled', message: st.timedOut ? 'timeout' : 'cancelled', text: partial };
       if (e && e.code) { e.text = e.text || partial; throw e; }
       throw { code: 'upstream_error', message: String(e), text: partial };
     }
@@ -442,46 +461,63 @@
         if (last && last.role === m.role) last.content += '\n\n' + m.content;
         else messages.push({ role: m.role, content: m.content });
       });
+      var order = geminiOrder(opts);
+      var gModel = order[opts._fb || 0];
+      var ctl = new AbortController();
+      var st = { timedOut: false, timer: null };
+      var onAbort = function () { ctl.abort(); };
+      if (opts.signal) { if (opts.signal.aborted) ctl.abort(); else opts.signal.addEventListener('abort', onAbort); }
+      function arm(ms) { clearTimeout(st.timer); st.timer = setTimeout(function () { st.timedOut = true; ctl.abort(); }, ms); }
+      function done() { clearTimeout(st.timer); if (opts.signal) opts.signal.removeEventListener('abort', onAbort); }
+      arm(TIMEOUTS.head);
       var res;
-      var gModel = opts._fb ? PROVIDERS.gemini.fallbacks[opts._fb - 1] : getModel('gemini');
       try {
-        if (p === 'gemini') {
-          var gen = { maxOutputTokens: opts.maxTokens || 4096, temperature: opts.json ? 0.3 : 0.8 };
-          if (opts.json) gen.responseMimeType = 'application/json';
-          res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(gModel) + ':streamGenerateContent?alt=sse', {
-            method: 'POST',
-            signal: opts.signal,
-            headers: { 'content-type': 'application/json', 'x-goog-api-key': getKey('gemini') },
-            body: JSON.stringify({
-              contents: messages.map(function (m) { return { role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }; }),
-              generationConfig: gen
-            })
-          });
-        } else {
-          res = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            signal: opts.signal,
-            headers: {
-              'content-type': 'application/json',
-              'x-api-key': getKey('claude'),
-              'anthropic-version': '2023-06-01',
-              'anthropic-dangerous-direct-browser-access': 'true'
-            },
-            body: JSON.stringify({ model: getModel('claude'), max_tokens: opts.maxTokens || 1500, stream: true, messages: messages })
-          });
+        try {
+          if (p === 'gemini') {
+            var gen = { maxOutputTokens: opts.maxTokens || 4096, temperature: opts.json ? 0.3 : 0.8 };
+            if (opts.json) gen.responseMimeType = 'application/json';
+            if (gModel === PROVIDERS.gemini.model && !opts._noThink) gen.thinkingConfig = { thinkingLevel: 'low' };
+            res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(gModel) + ':streamGenerateContent?alt=sse', {
+              method: 'POST',
+              signal: ctl.signal,
+              headers: { 'content-type': 'application/json', 'x-goog-api-key': getKey('gemini') },
+              body: JSON.stringify({
+                contents: messages.map(function (m) { return { role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }; }),
+                generationConfig: gen
+              })
+            });
+          } else {
+            res = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              signal: ctl.signal,
+              headers: {
+                'content-type': 'application/json',
+                'x-api-key': getKey('claude'),
+                'anthropic-version': '2023-06-01',
+                'anthropic-dangerous-direct-browser-access': 'true'
+              },
+              body: JSON.stringify({ model: getModel('claude'), max_tokens: opts.maxTokens || 1500, stream: true, messages: messages })
+            });
+          }
+        } catch (e) {
+          if (e && e.name === 'AbortError') throw { code: st.timedOut ? 'timeout' : 'cancelled', message: st.timedOut ? 'timeout' : 'cancelled' };
+          lastDetail = '네트워크 오류';
+          throw { code: 'upstream_error', message: String(e) };
         }
-      } catch (e) {
-        if (e && e.name === 'AbortError') throw { code: 'cancelled', message: 'cancelled' };
-        lastDetail = '네트워크 오류';
-        throw { code: 'upstream_error', message: String(e) };
-      }
-      if (!res.ok) {
-        if (p === 'gemini' && !lsGet('anime-ai-model-gemini') && [404, 429, 503].indexOf(res.status) >= 0 && (opts._fb || 0) < PROVIDERS.gemini.fallbacks.length) {
-          return s(input, Object.assign({}, opts, { _fb: (opts._fb || 0) + 1 }));
+        if (!res.ok) {
+          if (p === 'gemini' && res.status === 400 && !opts._noThink && gModel === PROVIDERS.gemini.model) {
+            var bt = '';
+            try { bt = await res.clone().text(); } catch (e) {}
+            if (/think/i.test(bt)) { done(); return await s(input, Object.assign({}, opts, { _noThink: true })); }
+          }
+          if (p === 'gemini' && [404, 429, 503].indexOf(res.status) >= 0 && (opts._fb || 0) + 1 < order.length) {
+            done();
+            return await s(input, Object.assign({}, opts, { _fb: (opts._fb || 0) + 1 }));
+          }
+          throw await httpError(res);
         }
-        throw await httpError(res);
-      }
-      return readStream(res, opts, p === 'gemini' ? pickGemini : pickClaude);
+        return await readStream(res, opts, p === 'gemini' ? pickGemini : pickClaude, arm, st);
+      } finally { done(); }
     }
     s.json = async function (input, opts) {
       var r = await s(input, Object.assign({ maxTokens: 6000, json: true }, opts || {}));
@@ -499,21 +535,34 @@
 
   /* ---------- AniList ---------- */
   var ANILIST = 'https://graphql.anilist.co';
-  async function anilist(query, variables, signal) {
-    var res;
+  async function timedJson(url, init, ms, signal, label) {
+    var ctl = new AbortController();
+    var timedOut = false;
+    var timer = setTimeout(function () { timedOut = true; ctl.abort(); }, ms);
+    var onAbort = function () { ctl.abort(); };
+    if (signal) { if (signal.aborted) ctl.abort(); else signal.addEventListener('abort', onAbort); }
     try {
-      res = await fetch(ANILIST, {
-        method: 'POST',
-        signal: signal,
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ query: query, variables: variables })
-      });
+      var res = await fetch(url, Object.assign({}, init, { signal: ctl.signal }));
+      if (!res.ok) throw new Error(label + ' ' + res.status);
+      return await res.json();
     } catch (e) {
-      if (e && e.name === 'AbortError') throw { code: 'cancelled', message: 'cancelled' };
-      throw new Error('anilist network');
+      if (e && e.name === 'AbortError') {
+        if (timedOut) throw new Error(label + ' timeout');
+        throw { code: 'cancelled', message: 'cancelled' };
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', onAbort);
     }
-    if (!res.ok) throw new Error('anilist ' + res.status);
-    var j = await res.json();
+  }
+
+  async function anilist(query, variables, signal) {
+    var j = await timedJson(ANILIST, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ query: query, variables: variables })
+    }, TIMEOUTS.aniList, signal, 'anilist');
     if (j.errors && !j.data) throw new Error('anilist query');
     return j.data;
   }
@@ -542,6 +591,7 @@
   }
 
   var wikiCache = {};
+  var searchCache = {};
   var pasted = '';
   var WIKI = { ko: 'https://ko.wikipedia.org/w/api.php', en: 'https://en.wikipedia.org/w/api.php', data: 'https://www.wikidata.org/w/api.php' };
 
@@ -565,14 +615,7 @@
 
   async function wikiApi(lang, params, signal) {
     var qs = new URLSearchParams(Object.assign({ action: 'query', format: 'json', formatversion: '2', origin: '*' }, params)).toString();
-    var res;
-    try { res = await fetch(WIKI[lang] + '?' + qs, { signal: signal }); }
-    catch (e) {
-      if (e && e.name === 'AbortError') throw { code: 'cancelled', message: 'cancelled' };
-      throw new Error('wiki network');
-    }
-    if (!res.ok) throw new Error('wiki ' + res.status);
-    return res.json();
+    return timedJson(WIKI[lang] + '?' + qs, {}, TIMEOUTS.wiki, signal, 'wiki');
   }
 
   function wikiMatches(text, m) {
@@ -583,9 +626,13 @@
   async function wikiFind(lang, m, signal) {
     var t = m.title || {};
     var qs = [t.native, t.romaji, t.english].filter(Boolean).slice(0, 2);
-    for (var i = 0; i < qs.length; i++) {
-      var j = await wikiApi(lang, { generator: 'search', gsrsearch: qs[i], gsrlimit: '4', gsrnamespace: '0', prop: 'extracts|langlinks|pageprops', exintro: '1', explaintext: '1', exlimit: '4', redirects: '1', lllang: 'ko', ppprop: 'wikibase_item' }, signal);
-      var pages = ((j.query && j.query.pages) || []).slice().sort(function (a, b) { return (a.index || 0) - (b.index || 0); });
+    var results = await Promise.all(qs.map(function (q) {
+      return wikiApi(lang, { generator: 'search', gsrsearch: q, gsrlimit: '4', gsrnamespace: '0', prop: 'extracts|langlinks|pageprops', exintro: '1', explaintext: '1', exlimit: '4', redirects: '1', lllang: 'ko', ppprop: 'wikibase_item' }, signal)
+        .catch(function (e) { if (e && e.code === 'cancelled') throw e; return null; });
+    }));
+    for (var i = 0; i < results.length; i++) {
+      var j = results[i];
+      var pages = ((j && j.query && j.query.pages) || []).slice().sort(function (a, b) { return (a.index || 0) - (b.index || 0); });
       for (var k = 0; k < pages.length; k++) {
         if (pages[k].extract && wikiMatches(pages[k].extract, m)) return pages[k];
       }
@@ -664,39 +711,53 @@
     return { text: s, kt: kt };
   }
 
-  async function extractTitles(text, signal) {
+  async function extractTitles(text, signal, plain) {
     var t = String(text || '').trim();
     if (t.length < 3) return [];
+    if (plain && t.length <= 80 && /^[\x00-\x7F]+$/.test(t)) return [t];
     var prompt = '다음 메시지에 애니메이션 작품이 언급되어 있으면, AniList에서 검색할 수 있는 영어 또는 로마자 제목을 JSON 문자열 배열로만 출력해. 최대 3개. 확실하지 않으면 원문에 적힌 이름을 그대로 써. 작품이 언급되지 않았으면 [] 만 출력해.\n\n메시지: ' + t.slice(0, 500);
-    var data = await sample.json(prompt, { signal: signal, maxTokens: 400 });
+    var data = await sample.json(prompt, { signal: signal, maxTokens: 400, fast: true, firstMs: 25000 });
     return Array.isArray(data) ? data.map(String).filter(Boolean).slice(0, 3) : [];
   }
 
   var lastFacts = null;
   async function ground(text, signal, bot) {
     var names = [];
+    if (lastFacts && String(text || '').trim().length < 6) return lastFacts;
     try {
-      bot.textContent = '작품 정보를 확인하는 중…';
+      bot.stage = '작품 정보를 확인하는 중';
       names = await extractTitles(text, signal);
     } catch (e) {
       if (e && e.code === 'cancelled') throw e;
       names = [];
     }
     if (!names.length) return lastFacts || { text: '', names: [], failed: false };
-    var items = [];
-    for (var i = 0; i < names.length; i++) {
+    var found = await Promise.all(names.map(async function (nm) {
+      var key = norm(nm);
+      if (searchCache[key]) return searchCache[key];
       try {
-        var d = await anilist(Q_SEARCH, { q: names[i] }, signal);
-        var m = pickBest(d && d.Page && d.Page.media, names[i]);
-        if (m && !items.some(function (x) { return x.id === m.id; })) items.push(m);
+        var d = await anilist(Q_SEARCH, { q: nm }, signal);
+        var mm = pickBest(d && d.Page && d.Page.media, nm);
+        if (mm) searchCache[key] = mm;
+        return mm;
       } catch (e) {
         if (e && e.code === 'cancelled') throw e;
+        return null;
       }
-    }
+    }));
+    var items = [];
+    found.forEach(function (m) { if (m && !items.some(function (x) { return x.id === m.id; })) items.push(m); });
     if (!items.length) return { text: '', names: [], failed: true };
-    var wikiUsed = false;
+    var wikiUsed = false, wikiLate = false;
     var res = await Promise.all(items.map(async function (m, i) {
-      var w = i < 2 ? await wikiText(m, signal) : { text: '', kt: hangulSynonym(m) };
+      var w = { text: '', kt: hangulSynonym(m) };
+      if (i < 2) {
+        var job = wikiText(m, signal);
+        job.catch(function () {});
+        var timer;
+        w = await Promise.race([job, new Promise(function (resolve) { timer = setTimeout(function () { wikiLate = true; resolve({ text: '', kt: hangulSynonym(m) }); }, TIMEOUTS.chatWiki); })]);
+        clearTimeout(timer);
+      }
       if (w.text) wikiUsed = true;
       return { text: factText(m) + w.text, kt: w.kt };
     }));
@@ -704,6 +765,7 @@
       text: res.map(function (r) { return r.text; }).join('\n\n'),
       names: items.map(function (m, i) { return (res[i].kt || titleOf(m)) + (m.seasonYear ? ' (' + m.seasonYear + ')' : ''); }),
       sources: wikiUsed ? 'AniList · 위키백과' : 'AniList',
+      wikiLate: wikiLate,
       failed: false
     };
     return lastFacts;
@@ -722,6 +784,7 @@
       case 'prompt_too_large': return '대화가 너무 길어졌어요. 새로 시작해 주세요.';
       case 'invalid_json': return '답을 정리하지 못했어요. 한 번 더 시도해 주세요.';
       case 'empty_completion': return '답을 만들지 못했어요. 표현을 바꿔서 다시 물어봐 주세요.';
+      case 'timeout': return '응답이 너무 늦어요. 잠시 뒤에 다시 시도하거나, 설정에서 모델 이름을 gemini-3.5-flash-lite 로 바꿔 보세요.';
       default: return '연결에 문제가 생겼어요. 다시 시도해 주세요.' + (lastDetail ? ' (' + lastDetail + ')' : '');
     }
   }
@@ -810,21 +873,27 @@
     ta.value = ''; autosize();
     bubble('me', text);
     turns.push({ role: 'user', content: text.slice(0, 2000) });
-    var bot = bubble('bot', '생각 중…');
+    var bot = bubble('bot', '준비하는 중… 0초');
+    bot.stage = '준비하는 중';
+    var tc0 = Date.now(), tGround = 0, tFirst = 0, gotText = false;
+    var tickC = setInterval(function () { if (!gotText) bot.textContent = bot.stage + '… ' + Math.round((Date.now() - tc0) / 1000) + '초'; }, 1000);
     ctl = new AbortController();
     setBusy(true);
     try {
       var facts = await ground(text, ctl.signal, bot);
-      bot.textContent = '생각 중…';
+      tGround = Date.now() - tc0;
+      bot.stage = '답변을 쓰는 중';
       var input = [{ role: 'user', content: rules(facts) }].concat(turns.slice(-12));
       var res = await sample(input, {
         cache: false,
         signal: ctl.signal,
-        onText: function (u) { bot.textContent = u.text; scrollDown(); }
+        onText: function (u) { if (!gotText) { gotText = true; tFirst = Date.now() - tc0; } bot.textContent = u.text; scrollDown(); }
       });
       turns.push({ role: 'assistant', content: res.text });
-      if (facts && facts.names && facts.names.length) msgs.append(el('div', 'src', '조회한 작품: ' + facts.names.join(' · ') + ' (' + (facts.sources || 'AniList') + ')'));
+      if (facts && facts.names && facts.names.length) msgs.append(el('div', 'src', '조회한 작품: ' + facts.names.join(' · ') + ' (' + (facts.sources || 'AniList') + ')' + (facts.wikiLate ? ' · 위키백과는 응답이 늦어 이번엔 뺐어요' : '')));
       else if (facts && facts.failed) msgs.append(el('div', 'src', '작품 데이터 조회에 실패해서 AI 기억으로 답했어요. 사실 정보는 확인이 필요해요.'));
+      var sec = function (ms) { return (ms / 1000).toFixed(1) + '초'; };
+      msgs.append(el('div', 'src', '걸린 시간: 자료 조회 ' + sec(tGround) + ' · 첫 글자까지 ' + sec(tFirst || tGround) + ' · 전체 ' + sec(Date.now() - tc0)));
       if (res.truncated) bubble('bot', '(답이 길어서 중간에 끊겼어요. "이어서 말해줘"라고 해 보세요.)');
     } catch (err) {
       if (err && err.text) {
@@ -838,6 +907,7 @@
         if (err && fatal(err.code)) setAI('off');
       }
     } finally {
+      clearInterval(tickC);
       setBusy(false);
       ctl = null;
       scrollDown();
@@ -885,9 +955,29 @@
   };
   function noticeCard(text) { var c = el('div', 'card'); c.append(el('p', 'hint', text)); return c; }
 
-  async function recommendGrounded(fav, reasons, seen, signal) {
+  async function resolveKoTitles(cards, signal, onEach) {
+    await Promise.all(cards.map(async function (c, i) {
+      var timer;
+      try {
+        var kt = await Promise.race([
+          koTitleOf(c._m, signal),
+          new Promise(function (resolve) { timer = setTimeout(function () { resolve(''); }, TIMEOUTS.title); })
+        ]);
+        if (kt) { c.title_ko = kt; c.ko = true; } else { c.ko = false; }
+      } catch (e) {
+        if (e && e.code === 'cancelled') throw e;
+        c.ko = false;
+      } finally { clearTimeout(timer); }
+      if (onEach) onEach(c, i);
+    }));
+  }
+
+  async function recommendGrounded(fav, reasons, seen, signal, progress, defer) {
+    var say = function (t) { if (progress) progress(t); };
     var names = [];
-    try { names = await extractTitles(fav, signal); } catch (e) { if (e && e.code === 'cancelled') throw e; }
+    say('1/3 작품을 확인하는 중');
+    try { names = await extractTitles(fav, signal, true); } catch (e) { if (e && e.code === 'cancelled') throw e; }
+    say('2/3 비슷한 작품 후보를 가져오는 중');
     var d = await anilist(Q_SEARCH, { q: names[0] || fav }, signal);
     var base = pickBest(d && d.Page && d.Page.media, names[0] || fav);
     if (!base) return null;
@@ -919,6 +1009,7 @@
       '규칙:\n- 후보 중에서만 고르고, 가장 닮은 최대 5개를 골라. 좋았던 점을 골랐다면 그 요소가 닮은 작품을 우선해.\n- 닮은 점은 "기준작과 겹치는 것"과 줄거리에서 구체적인 요소(배경, 인물 관계, 분위기, 전개 방식)를 짚어서 2문장으로 써. 제작사나 작화 수준 같은 일반론은 쓰지 마. 데이터에 없는 사실은 지어내지 마.\n- 스포일러: ' + (spoilerSafe ? '절대 쓰지 마. 결말, 반전, 핵심 전개 없이 설명해.' : '꼭 필요한 최소한만 허용해.') ,
       'JSON 배열만 출력해. 항목 형식: {"id": 후보 id(숫자), "similar": "닮은 점", "different": "다른 점 1문장"}'
     ].join('\n\n');
+    say('3/3 AI가 후보 중에서 고르는 중');
     var data = await sample.json(prompt, { signal: signal });
     var byId = {};
     cands.forEach(function (c) { byId[c.m.id] = c; });
@@ -930,7 +1021,7 @@
       cards.push({
         _id: m.id,
         _m: m,
-        ko: false,
+        ko: defer ? 'pending' : false,
         shared: sharedOf(base, m),
         title_ko: titleOf(m),
         title_orig: [t.romaji, t.native].filter(Boolean).join(' · '),
@@ -944,12 +1035,7 @@
       });
     });
     cards = cards.slice(0, 5);
-    await Promise.all(cards.map(async function (c) {
-      try {
-        var kt = await koTitleOf(c._m, signal);
-        if (kt) { c.title_ko = kt; c.ko = true; }
-      } catch (e) { if (e && e.code === 'cancelled') throw e; }
-    }));
+    if (!defer) await resolveKoTitles(cards, signal);
     return { base: base, cards: cards };
   }
 
@@ -989,7 +1075,12 @@
     recCtl = new AbortController();
     results.replaceChildren();
     var wait = el('div', 'card busy');
-    wait.append(el('span', 'hint', '작품 데이터를 찾아서 비교하는 중이에요. 10~30초 걸려요.'));
+    var waitText = el('span', 'hint', '시작하는 중…');
+    wait.append(waitText);
+    var t0 = Date.now(), stepLabel = '시작하는 중';
+    var tick = setInterval(function () { waitText.textContent = stepLabel + ' · ' + Math.round((Date.now() - t0) / 1000) + '초'; }, 1000);
+    var recTimedOut = false;
+    var killer = setTimeout(function () { recTimedOut = true; if (recCtl) recCtl.abort(); }, TIMEOUTS.total);
     var stop = el('button', 'btn ghost small', '멈춤');
     stop.type = 'button';
     stop.addEventListener('click', function () { if (recCtl) recCtl.abort(); });
@@ -999,7 +1090,7 @@
     try {
       var out = null, lookupFailed = false;
       try {
-        out = await recommendGrounded(fav, reasons, seen, recCtl.signal);
+        out = await recommendGrounded(fav, reasons, seen, recCtl.signal, function (t) { stepLabel = t; }, true);
       } catch (e) {
         if (e && e.code && e.code !== 'invalid_json') throw e;
         lookupFailed = true;
@@ -1007,7 +1098,14 @@
       results.replaceChildren();
       if (out && out.cards.length) {
         results.append(noticeCard('기준 작품: ' + titleOf(out.base) + (out.base.seasonYear ? ' (' + out.base.seasonYear + ')' : '') + '. AniList 커뮤니티 추천을 바탕으로 골랐어요. 한글 제목은 한국어 위키백과에 있을 때만 붙여요. 다른 작품이 잡혔다면 원제나 영어 제목으로 다시 검색해 보세요.'));
-        out.cards.forEach(function (c) { results.append(recCard(c)); });
+        var els = out.cards.map(function (c) { var e = recCard(c); results.append(e); return e; });
+        resolveKoTitles(out.cards, recCtl.signal, function (c, i) {
+          var e = els[i];
+          var hd = e && e.querySelector('h3');
+          if (hd && c.ko === true) hd.textContent = c.title_ko;
+          var tg = e && e.querySelector('.tag.ex');
+          if (tg) { if (c.ko === true) tg.remove(); else tg.textContent = '한글 제목 미확인'; }
+        }).catch(function () {});
       } else {
         var fb = await recommendFallback(fav, reasons, seen, recCtl.signal);
         results.replaceChildren();
@@ -1021,12 +1119,16 @@
       }
     } catch (err) {
       results.replaceChildren();
-      if (err && err.code === 'cancelled') { renderHint(); }
+      if (err && err.code === 'cancelled') {
+        if (recTimedOut) results.append(noticeCard('시간이 너무 오래 걸려서 멈췄어요. 잠시 뒤에 다시 시도하거나, 설정에서 모델 이름을 gemini-3.5-flash-lite 로 바꿔 보세요.'));
+        else renderHint();
+      }
       else {
         results.append(noticeCard(copyFor(err && err.code)));
         if (err && fatal(err.code)) setAI('off');
       }
     } finally {
+      clearInterval(tick); clearTimeout(killer);
       recBusy = false; recCtl = null;
       $('#findBtn').disabled = aiState !== 'ready';
     }
@@ -1043,7 +1145,7 @@
     if (r.format) tags.append(el('span', 'tag', String(r.format).slice(0, 10)));
     (Array.isArray(r.genres) ? r.genres : []).slice(0, 3).forEach(function (g) { tags.append(el('span', 'tag', String(g).slice(0, 12))); });
     if (r.note_tag) tags.append(el('span', 'tag', String(r.note_tag).slice(0, 24)));
-    if (r.ko === false) tags.append(el('span', 'tag ex', '한글 제목 미확인'));
+    if (r.ko === false || r.ko === 'pending') tags.append(el('span', 'tag ex', r.ko === 'pending' ? '한글 제목 찾는 중…' : '한글 제목 미확인'));
     if (r.confidence && r.confidence !== 'high') tags.append(el('span', 'tag warn', '정보 확인 권장'));
     if (tags.childNodes.length) c.append(tags);
     if (r.similar) { var p1 = el('p', 'line'); p1.append(el('b', null, '닮은 점'), document.createTextNode(String(r.similar).slice(0, 300))); c.append(p1); }
@@ -1215,6 +1317,17 @@
     keyMsg('키를 삭제했어요.');
   });
   paintSettings();
+  /* ---------- speed preference ---------- */
+  var speedBtns = document.querySelectorAll('#speedSeg .chip');
+  function paintSpeed() {
+    var q = lsGet('anime-ai-speed') === 'quality' ? 'quality' : 'fast';
+    speedBtns.forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-q') === q ? 'true' : 'false'); });
+  }
+  speedBtns.forEach(function (b) {
+    b.addEventListener('click', function () { lsSet('anime-ai-speed', b.getAttribute('data-q')); paintSpeed(); });
+  });
+  paintSpeed();
+
   /* ---------- pasted reference ---------- */
   function paintPaste() {
     $('#pasteState').textContent = pasted ? '붙여넣은 자료 ' + pasted.length + '자 적용 중' : '';
