@@ -157,6 +157,19 @@
   .paste { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; }
   .paste textarea { max-height: 180px; min-height: 90px; resize: vertical; }
   .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 8px; }
+  #p-chat { position: relative; }
+  .drawer { position: absolute; inset: 0; z-index: 5; background: var(--bg); display: flex; flex-direction: column; gap: 10px; padding-block: 8px; }
+  .drawer-head { flex: none; display: flex; align-items: center; gap: 8px; }
+  .drawer-head strong { flex: 1; font-family: var(--font-display); font-weight: 400; font-size: 19px; }
+  #convList { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+  .conv { display: flex; align-items: stretch; gap: 8px; }
+  .conv .open { flex: 1; min-width: 0; text-align: left; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .conv .open[aria-current="true"] { border-color: var(--accent); }
+  .conv .t { display: block; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .conv .d { display: block; font-size: 11.5px; color: var(--muted); }
+  .conv .del { flex: none; min-width: 52px; }
+  .btn.confirm { background: var(--danger); color: #1a0a09; border-color: var(--danger); }
+  #profIntro { min-height: 90px; max-height: 200px; resize: vertical; }
 </style>
 </head>
 <body>
@@ -164,7 +177,7 @@
   <header class="bar">
     <div class="brand">
       <h1>애니 도감</h1>
-      <div class="sub">같이 얘기하고, 취향대로 골라주는 AI 친구 · v3.7</div>
+      <div class="sub">같이 얘기하고, 취향대로 골라주는 AI 친구 · v3.8</div>
     </div>
     <button class="spoil" id="spoil" role="switch" aria-checked="true">스포 방지 ON</button>
   </header>
@@ -181,6 +194,8 @@
         </div>
       </div>
       <div class="tools">
+        <button class="chip" id="convOpen" type="button">대화 목록</button>
+        <button class="chip" id="newChat" type="button">＋ 새 대화</button>
         <button class="chip" id="pasteToggle" type="button">자료 붙여넣기</button>
         <span class="hint" id="pasteState"></span>
       </div>
@@ -189,6 +204,14 @@
         <button class="btn" id="send" type="submit" disabled>보내기</button>
       </form>
       <div class="note" id="chatNote">AI 연결 중…</div>
+      <div class="drawer" id="drawer" hidden>
+        <div class="drawer-head">
+          <strong>대화 목록</strong>
+          <button class="btn small" id="drawerNew" type="button">＋ 새 대화</button>
+          <button class="btn ghost small" id="drawerClose" type="button">닫기</button>
+        </div>
+        <div id="convList"></div>
+      </div>
     </section>
 
     <!-- recommend -->
@@ -263,6 +286,28 @@
             <button class="btn ghost" id="clearKey" type="button">키 삭제</button>
           </div>
           <div class="hint" id="keyMsg"></div>
+        </div>
+        <div class="card">
+          <h3>내 정보</h3>
+          <p class="hint">여기 적어 두면 매번 소개하지 않아도 AI가 알고 대화해요. 이 폰에만 저장돼요.</p>
+          <div class="field">
+            <label class="label" for="profNick">AI가 부를 이름 (선택)</label>
+            <input type="text" id="profNick" maxlength="20" placeholder="예: 한빛" autocomplete="off">
+          </div>
+          <div class="field">
+            <label class="label" for="profIntro">나에 대해 (선택)</label>
+            <textarea id="profIntro" maxlength="600" rows="4" placeholder="예: 학생이고, 일상물과 힐링물을 좋아해요. 잔인한 건 별로예요. 최근에 아노하나를 봤어요."></textarea>
+          </div>
+          <div class="actions"><button class="btn small" id="profSave" type="button">저장</button><span class="hint" id="profMsg"></span></div>
+        </div>
+        <div class="card">
+          <h3>대화 기억</h3>
+          <div class="seg" id="memSeg">
+            <button type="button" class="chip" data-m="on" aria-pressed="true">이전 대화 기억하기</button>
+            <button type="button" class="chip" data-m="off" aria-pressed="false">기억 안 하기</button>
+          </div>
+          <p class="hint">켜 두면 새 대화에서도 이전 대화에서 했던 말을 참고해요. 대화 기록은 이 폰에만 저장돼요.</p>
+          <div class="actions"><button class="btn ghost small" id="wipeConvs" type="button">대화 기록 모두 지우기</button></div>
         </div>
         <div class="card">
           <h3>응답 속도 (Gemini)</h3>
@@ -835,6 +880,8 @@
         : '스포일러 규칙: 지금은 스포 허용 모드야. 그래도 스포가 나오기 직전에 한 줄로 "여기부터 스포예요"라고 알려줘.',
       '대화 규칙: 감상을 나눌 때는 먼저 공감하고, 궁금한 점은 한 번에 하나만 물어봐. 사용자 의견이 너와 달라도 존중하고 이유를 물어봐. 답은 보통 3~6문장으로 짧게, 마크다운 기호(**, #, 표) 없이 평문으로 써.',
       '사용자 기록:\n' + logContext(),
+      profileContext(),
+      memoryContext(),
       (facts && facts.text)
         ? '조회된 작품 데이터(AniList, 위키백과):\n' + facts.text + '\n\n위 데이터(AniList, 위키백과)에 있는 내용만 사실로 말해. 네 기억과 다르면 데이터를 믿어. 데이터에 없는 장면, 대사, 편지나 소품의 내용 같은 세부 사항은 지어내지 말고 "자료에 없어서 확실하지 않아요"라고 말해. 영문 자료는 한국어로 옮겨서 말해. 이 데이터는 대화에서 언급된 작품에 대한 거야.'
         : (facts && facts.failed
@@ -852,8 +899,7 @@
   function scrollDown() { msgs.scrollTop = msgs.scrollHeight; }
   function bubble(kind, text) { var b = el('div', 'bubble ' + kind, text); msgs.append(b); scrollDown(); return b; }
 
-  var starters = $('#msgs');
-  bubble('bot', '안녕하세요! 보고 싶은 작품이든, 방금 본 작품 감상이든 편하게 얘기해요. 잘 모르는 건 모른다고 말할게요.');
+  var GREETING = '안녕하세요! 보고 싶은 작품이든, 방금 본 작품 감상이든 편하게 얘기해요. 잘 모르는 건 모른다고 말할게요.';
   var starterBox = el('div', 'chips');
   [
     ['○○ 스포 없이 소개해줘', 2],
@@ -870,7 +916,132 @@
     });
     starterBox.append(b);
   });
-  msgs.append(starterBox);
+
+  /* ---------- conversations (saved on this phone) ---------- */
+  var CONV_KEY = 'anime-ai-convs';
+  var convs = load(CONV_KEY, []);
+  if (!Array.isArray(convs)) convs = [];
+  var curId = null;
+  function curConv() { for (var i = 0; i < convs.length; i++) if (convs[i].id === curId) return convs[i]; return null; }
+  function persist() {
+    if (!turns.length) return;
+    var c = curConv();
+    if (!c) { c = { id: 'c' + Date.now(), title: '', turns: [], updated: 0 }; convs.unshift(c); curId = c.id; }
+    c.turns = turns.slice(-60);
+    if (!c.title) {
+      for (var i = 0; i < turns.length; i++) if (turns[i].role === 'user') { c.title = turns[i].content.replace(/\s+/g, ' ').slice(0, 28); break; }
+    }
+    c.updated = Date.now();
+    convs.sort(function (a, b) { return b.updated - a.updated; });
+    convs = convs.slice(0, 40);
+    save(CONV_KEY, convs);
+  }
+  function showTurns() {
+    msgs.replaceChildren();
+    bubble('bot', GREETING);
+    if (!turns.length) msgs.append(starterBox);
+    else turns.forEach(function (t) { bubble(t.role === 'user' ? 'me' : 'bot', t.content); });
+    scrollDown();
+  }
+  function startNew() {
+    if (busy) return;
+    turns = []; curId = null; lastFacts = null;
+    showTurns();
+    $('#drawer').hidden = true;
+  }
+  function openConv(id) {
+    if (busy) return;
+    for (var i = 0; i < convs.length; i++) {
+      if (convs[i].id === id) { curId = id; turns = convs[i].turns.slice(); lastFacts = null; showTurns(); $('#drawer').hidden = true; return; }
+    }
+  }
+  function ago(ts) {
+    var m = Math.round((Date.now() - ts) / 60000);
+    if (m < 1) return '방금';
+    if (m < 60) return m + '분 전';
+    if (m < 1440) return Math.round(m / 60) + '시간 전';
+    return Math.round(m / 1440) + '일 전';
+  }
+  function renderConvs() {
+    var box = $('#convList');
+    box.replaceChildren();
+    if (!convs.length) { box.append(el('p', 'hint', '아직 저장된 대화가 없어요.')); return; }
+    convs.forEach(function (c) {
+      var row = el('div', 'conv');
+      var open = el('button', 'open');
+      open.type = 'button';
+      if (c.id === curId) open.setAttribute('aria-current', 'true');
+      open.append(el('span', 't', c.title || '새 대화'), el('span', 'd', ago(c.updated) + ' · 메시지 ' + c.turns.length + '개'));
+      open.addEventListener('click', function () { openConv(c.id); });
+      var del = el('button', 'btn ghost small del', '삭제');
+      del.type = 'button';
+      var armT = null;
+      del.addEventListener('click', function () {
+        if (armT) {
+          clearTimeout(armT);
+          convs = convs.filter(function (x) { return x.id !== c.id; });
+          save(CONV_KEY, convs);
+          if (c.id === curId) { turns = []; curId = null; lastFacts = null; showTurns(); }
+          renderConvs();
+          return;
+        }
+        del.textContent = '정말?'; del.classList.add('confirm');
+        armT = setTimeout(function () { armT = null; del.textContent = '삭제'; del.classList.remove('confirm'); }, 3000);
+      });
+      row.append(open, del);
+      box.append(row);
+    });
+  }
+  $('#convOpen').addEventListener('click', function () { renderConvs(); $('#drawer').hidden = false; });
+  $('#drawerClose').addEventListener('click', function () { $('#drawer').hidden = true; });
+  $('#newChat').addEventListener('click', startNew);
+  $('#drawerNew').addEventListener('click', startNew);
+  showTurns();
+
+  /* ---------- profile + cross-conversation memory ---------- */
+  function profileContext() {
+    var n = lsGet('anime-ai-nick'), p = lsGet('anime-ai-intro');
+    if (!n && !p) return '';
+    return '사용자 정보(사용자가 직접 적은 내용이야. 사실로 믿고, 이미 적힌 건 다시 묻지 마):\n' + (n ? '부를 이름: ' + n + ' (가끔 자연스럽게 불러줘)\n' : '') + (p ? p : '');
+  }
+  function memoryContext() {
+    if (lsGet('anime-ai-mem') === 'off') return '';
+    var out = [], total = 0;
+    convs.filter(function (c) { return c.id !== curId; }).slice(0, 6).forEach(function (c) {
+      var us = c.turns.filter(function (t) { return t.role === 'user'; }).slice(-3).map(function (t) { return t.content.replace(/\s+/g, ' ').slice(0, 80); });
+      if (!us.length) return;
+      var line = '- ' + (c.title || '대화') + ': ' + us.join(' / ');
+      if (total + line.length > 900) return;
+      total += line.length; out.push(line);
+    });
+    return out.length ? '이전 대화에서 사용자가 했던 말(참고용이야. 지금 얘기와 관련 있을 때만 자연스럽게 쓰고 억지로 꺼내지 마):\n' + out.join('\n') : '';
+  }
+  $('#profNick').value = lsGet('anime-ai-nick');
+  $('#profIntro').value = lsGet('anime-ai-intro');
+  $('#profSave').addEventListener('click', function () {
+    var ok = lsSet('anime-ai-nick', $('#profNick').value.trim()) && lsSet('anime-ai-intro', $('#profIntro').value.trim());
+    $('#profMsg').textContent = ok ? '저장했어요. 다음 답변부터 적용돼요.' : '이 브라우저에서는 저장할 수 없어요.';
+  });
+  var memBtns = document.querySelectorAll('#memSeg .chip');
+  function paintMem() {
+    var m = lsGet('anime-ai-mem') === 'off' ? 'off' : 'on';
+    memBtns.forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-m') === m ? 'true' : 'false'); });
+  }
+  memBtns.forEach(function (b) { b.addEventListener('click', function () { lsSet('anime-ai-mem', b.getAttribute('data-m')); paintMem(); }); });
+  paintMem();
+  (function () {
+    var w = $('#wipeConvs'), armW = null;
+    w.addEventListener('click', function () {
+      if (armW) {
+        clearTimeout(armW); armW = null;
+        convs = []; save(CONV_KEY, convs); turns = []; curId = null; lastFacts = null; showTurns();
+        w.textContent = '지웠어요'; setTimeout(function () { w.textContent = '대화 기록 모두 지우기'; w.classList.remove('confirm'); }, 1500);
+        return;
+      }
+      w.textContent = '한 번 더 누르면 모두 지워져요'; w.classList.add('confirm');
+      armW = setTimeout(function () { armW = null; w.textContent = '대화 기록 모두 지우기'; w.classList.remove('confirm'); }, 3500);
+    });
+  })();
 
   function autosize() { var ta = $('#input'); ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 120) + 'px'; }
   $('#input').addEventListener('input', autosize);
@@ -880,12 +1051,22 @@
 
   function setBusy(v) {
     busy = v;
+    resetStop();
+    $('#convOpen').disabled = v; $('#newChat').disabled = v;
     var b = $('#send');
     b.textContent = v ? '멈춤' : '보내기';
     b.type = v ? 'button' : 'submit';
     b.disabled = aiState !== 'ready';
   }
-  $('#send').addEventListener('click', function () { if (busy && ctl) ctl.abort(); });
+  var stopArm = null;
+  function resetStop() { if (stopArm) { clearTimeout(stopArm); stopArm = null; } $('#send').classList.remove('confirm'); }
+  $('#send').addEventListener('click', function () {
+    if (!(busy && ctl)) return;
+    var b = $('#send');
+    if (stopArm) { resetStop(); ctl.abort(); return; }
+    b.textContent = '정말 멈출까요?'; b.classList.add('confirm');
+    stopArm = setTimeout(function () { stopArm = null; b.classList.remove('confirm'); if (busy) b.textContent = '멈춤'; }, 3000);
+  });
 
   $('#composer').addEventListener('submit', async function (e) {
     e.preventDefault();
@@ -931,6 +1112,7 @@
         if (err && fatal(err.code)) setAI('off');
       }
     } finally {
+      persist();
       clearInterval(tickC);
       setBusy(false);
       ctl = null;
